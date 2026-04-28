@@ -731,6 +731,26 @@ impl Prioritize {
 
                     let frame = match stream.pending_send.pop_front(buffer) {
                         Some(Frame::Data(mut frame)) => {
+                            // If a non-NO_ERROR reset is scheduled, discard
+                            // buffered DATA and let the `None` arm emit the
+                            // RST_STREAM on the next iteration.
+                            //
+                            // NO_ERROR is excluded because it is used for the
+                            // server early-response case (RFC 9113 §8.1) where
+                            // the buffered DATA is the response body that the
+                            // peer still needs. Window updates from the peer
+                            // will re-enqueue the stream so the data can be
+                            // delivered before the RST_STREAM.
+                            if let Some(reason) = stream.state.get_scheduled_reset() {
+                                if reason != Reason::NO_ERROR {
+                                    stream.pending_send.push_front(buffer, frame.into());
+                                    self.clear_queue(buffer, &mut stream);
+                                    self.reclaim_all_capacity(&mut stream, counts);
+                                    self.pending_send.push(&mut stream);
+                                    continue;
+                                }
+                            }
+
                             // Get the amount of capacity remaining for stream's
                             // window.
                             let stream_capacity = stream.send_flow.available();
