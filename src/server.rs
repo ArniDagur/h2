@@ -1698,6 +1698,14 @@ impl proto::Peer for Peer {
         // A request translated from HTTP/1 must not include the :authority
         // header
         if let Some(ref authority) = pseudo.authority {
+            // RFC 9113 §8.3.1: :authority MUST NOT include the deprecated
+            // userinfo subcomponent (user:pass@host) for http/https.
+            if authority.as_str().as_bytes().contains(&b'@') {
+                malformed!(
+                    "malformed headers: userinfo in :authority ({:?})",
+                    authority,
+                );
+            }
             let maybe_authority = uri::Authority::from_maybe_shared(authority.clone().into_inner());
             parts.authority = Some(maybe_authority.or_else(|why| {
                 malformed!(
