@@ -149,5 +149,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F55):** client GOAWAY PROTOCOL_ERROR when applying that setting.
 - **Verdict:** F55 enforces server-role prohibition on ENABLE_PUSH=1.
 
+### Send capacity reservation max
+- **RFC 9113 §6.9.1:** flow-control window max is 2^31-1.
+- **Rust h2 (pre-F56):** `reserve_capacity(usize)` truncated via `as u32`; prioritize used `u32::MAX` cap.
+- **Rust h2 (F56):** clamp to `MAX_WINDOW_SIZE` (2^31-1) at API and prioritize.
+- **Verdict:** F56 is h2 API/FC correctness (not a Go mismatch).
+
 ## Planned comparisons
 - Residual #848 API design.

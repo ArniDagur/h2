@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` @ `8b75b59`
+**Branch tip:** `experimental/bugsearch` @ `5cab42a`
 
 ## Current focus
-F55: server SETTINGS_ENABLE_PUSH = 1 accepted by client.
+F56: `reserve_capacity` silent `as WindowSize` truncation.
 
 ## Last actions
-1. Confirmed **F55**: client applied remote SETTINGS with ENABLE_PUSH=1 (RFC 9113 §6.5.2: server MUST NOT send value 1 → connection PROTOCOL_ERROR).
-2. Fix: in `Send::apply_remote_settings`, if client and `is_push_enabled()==Some(true)` → GOAWAY PROTOCOL_ERROR.
-3. Regression: `server_enable_push_one_is_connection_error`.
+1. Confirmed **F56**: `SendStream::reserve_capacity(usize)` cast to `u32` truncated large values (e.g. 2^32+n → n); prioritize used `WindowSize::MAX` (u32::MAX) not HTTP/2 max (2^31-1).
+2. Fix: clamp public API and prioritize requested capacity to `MAX_WINDOW_SIZE`.
+3. Regression: `reserve_capacity_clamps_to_max_window_size`.
 
 ## Next recommended step
-1. Package PRs for F3–F55.
+1. Package PRs for F3–F56.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (`reserve_capacity` truncation residual).
+3. Further FC/wakeup / protocol hunt.
 
 ## Blockers
 None.

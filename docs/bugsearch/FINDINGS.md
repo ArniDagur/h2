@@ -314,6 +314,12 @@
 - **Fix branch:** `fix/reject-server-enable-push-one`
 - **Change:** On remote SETTINGS, if `!counts.peer().is_server()` and push enabled → library GOAWAY PROTOCOL_ERROR.
 
+### F56 — `reserve_capacity` silent truncation past MAX_WINDOW_SIZE
+- **Severity:** Medium (FC / API): `SendStream::reserve_capacity(usize)` cast with `as WindowSize` (u32), so large values wrapped (e.g. `2^32 + n` → `n`, or values with low bits 0 → under-request). Prioritize also capped `requested_send_capacity` with `WindowSize::MAX` (u32::MAX) instead of HTTP/2 `MAX_WINDOW_SIZE` (2^31-1).
+- **Evidence:** `reserve_capacity(usize::MAX)` still yields Ready usable capacity post-fix (clamped). Regression `reserve_capacity_clamps_to_max_window_size`. Existing capacity tests pass.
+- **Fix branch:** `fix/reserve-capacity-clamp-max-window`
+- **Change:** Clamp public API to `MAX_WINDOW_SIZE`; prioritize effective request = min(requested+buffered, MAX_WINDOW_SIZE); send_data implicit request same.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
