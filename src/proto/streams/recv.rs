@@ -726,13 +726,21 @@ impl Recv {
         let is_ignoring_frame = stream.state.is_local_error();
 
         if !is_ignoring_frame && !stream.state.is_recv_streaming() {
-            // TODO: There are cases where this can be a stream error of
-            // STREAM_CLOSED instead...
-
-            // Receiving a DATA frame when not expecting one is a protocol
-            // error.
-            proto_err!(conn: "unexpected DATA frame; stream={:?}", stream.id);
-            return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+            // RFC 9113 §6.1: DATA whose stream is not open / half-closed (local)
+            // for receiving → stream error STREAM_CLOSED.
+            //
+            // Common case: peer sends DATA after END_STREAM (half-closed remote
+            // or fully closed). Pre-fix always GOAWAY PROTOCOL_ERROR, which
+            // killed the connection for a stream-scoped violation. Match Go
+            // `processData` (streamError STREAM_CLOSED) and still honor
+            // connection flow control for the rejected bytes.
+            proto_err!(
+                stream: "unexpected DATA frame; stream={:?}; state={:?}",
+                stream.id,
+                stream.state
+            );
+            self.ignore_data(sz)?;
+            return Err(Error::library_reset(stream.id, Reason::STREAM_CLOSED));
         }
 
         tracing::trace!(
