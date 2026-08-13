@@ -42,6 +42,7 @@
 | `fix/reject-response-missing-status` | F36 |
 | `fix/reject-request-missing-path-authority` | F37 |
 | `fix/reject-response-request-pseudos` | F38 |
+| `fix/reject-mismatched-content-length` | F39 |
 
 ## experimental contains
-F1–F38, I1–I2, deadlock stress test, docs.
+F1–F39, I1–I2, deadlock stress test, docs.

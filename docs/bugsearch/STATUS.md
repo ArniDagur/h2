@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F38: response HEADERS with request pseudo-headers (`:method`, etc.) accepted.
+F39: mismatched multiple `Content-Length` header values accepted.
 
 ## Last actions
-1. Confirmed **F38**: `:status` + `:method` delivered as normal 200; RFC 9113 §8.3.2 forbids request pseudos on responses.
-2. Fix: reject `has_request_pseudos()` before `recv_open` (client); defensive check in `convert_poll_message`.
-3. Regression: `response_headers_with_request_pseudo_is_stream_error`.
+1. Confirmed **F39**: two `Content-Length` fields (5 and 6) → framed as Remaining(5); response delivered.
+2. Fix: `get_all(CONTENT_LENGTH)` must parse to one decimal value; mismatch → stream PROTOCOL_ERROR.
+3. Regression: `mismatched_content_length_headers_is_stream_error`.
 
 ## Next recommended step
-1. Package PRs for F3–F38.
+1. Package PRs for F3–F39.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (trailers-without-EOS already handled; PRIORITY / GOAWAY edges).
+3. Further FC/wakeup / protocol hunt (Cookie merge #699 is interop/design; PRIORITY / GOAWAY edges).
 
 ## Blockers
 None.

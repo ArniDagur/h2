@@ -71,5 +71,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F38):** stream PROTOCOL_ERROR before `recv_open` when any request pseudo is present.
 - **Verdict:** F38 aligns with RFC; Go treats mixed request/response pseudos as malformed header blocks in similar spirit.
 
+### Mismatched multiple Content-Length values
+- **RFC 9110 §8.6:** differing multi CL values → message invalid; identical duplicates MAY be collapsed.
+- **Rust h2 (pre-F39):** `HeaderMap::get` first value only → Remaining(first); body framed incorrectly.
+- **Rust h2 (F39):** all CL field values must parse equal; else stream PROTOCOL_ERROR.
+- **Verdict:** F39 is an h2 protocol/framing correctness fix.
+
 ## Planned comparisons
 - Residual #848 API design.

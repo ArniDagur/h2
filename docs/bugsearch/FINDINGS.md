@@ -212,6 +212,12 @@
 - **Fix branch:** `fix/reject-response-request-pseudos`
 - **Change:** `Pseudo::has_request_pseudos()`; reject in `Recv::recv_headers` before `recv_open` (client); defensive reject in `client::Peer::convert_poll_message`.
 
+### F39 — Mismatched multiple `Content-Length` values accepted
+- **Severity:** Medium (protocol / framing): RFC 9110 §8.6 requires rejecting messages with multiple `Content-Length` fields whose decimal values differ (unreliable framing). `Recv::recv_headers` used `HeaderMap::get` (first value only), so `Content-Length: 5` + `Content-Length: 6` set `Remaining(5)` and the response was accepted.
+- **Evidence:** Response headers with two differing CL values — pre-fix client got Ready response with content_length Remaining(5); post-fix `RST_STREAM(PROTOCOL_ERROR)`. Identical duplicate CL values still accepted. Regression `mismatched_content_length_headers_is_stream_error`.
+- **Fix branch:** `fix/reject-mismatched-content-length`
+- **Change:** Walk `get_all(CONTENT_LENGTH)`; require all values parse equal; first establishes the length.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
