@@ -459,6 +459,12 @@
 - **Change:** `Streams::recv_data` GOAWAYs PROTOCOL_ERROR when `is_pending_open`, matching the other recv paths. F23 STREAM_CLOSED remains for streams that were open then recv-closed.
 - **Matches Go:** `processData` idle → connection PROTOCOL_ERROR; already-opened-not-recv → stream STREAM_CLOSED.
 
+### F80 — RecvStream drop after `poll_data` leaks unreleased recv capacity
+- **Severity:** Medium (FC / hang): `poll_data` pops DATA from `pending_recv` but leaves `in_flight` until `release_capacity`. `RecvStream::drop` → `clear_recv_buffer` only released bytes still in the queue. Read-but-unreleased bytes stayed charged. `FlowControl` is not `Clone` and dies with `RecvStream`, so the user cannot release later. If `SendStream` (or another ref) kept `ref_count > 0`, `release_closed_capacity` did not run either — connection (and stream) window leaked until every handle dropped.
+- **Evidence:** Read 3×16KiB, drop `RecvStream` only, hold `SendStream`: pre-fix 2s timeout waiting for connection WINDOW_UPDATE; post-fix WU sent. Unit: `clear_recv_buffer_releases_in_flight_after_data_taken`. Regression: `drop_recv_stream_after_read_releases_unreleased_capacity`. Unread-buffer drop still covered by F14 test.
+- **Fix branch:** `fix/recv-drop-releases-read-unreleased-capacity`
+- **Change:** `clear_recv_buffer` drains the queue then `release_capacity` of remaining `in_flight_recv_data`. `release_closed_capacity` zeros in_flight first (no double release).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

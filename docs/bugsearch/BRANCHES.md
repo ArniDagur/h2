@@ -83,6 +83,7 @@
 | `fix/drop-send-reclaims-reserved-capacity` | F77 |
 | `fix/send-response-holds-send-ref` | F78 |
 | `fix/data-on-pending-open-is-conn-error` | F79 |
+| `fix/recv-drop-releases-read-unreleased-capacity` | F80 |
 
 ## experimental contains
-F1–F79, I1–I2, deadlock stress test, docs.
+F1–F80, I1–I2, deadlock stress test, docs.
