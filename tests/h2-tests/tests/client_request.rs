@@ -2642,3 +2642,131 @@ async fn pending_open_refused_when_max_drops_to_zero() {
 
     join(srv, client).await;
 }
+
+/// Cancelled `pending_open` streams buried behind a healthy head must still be
+/// aborted (not only the head). Otherwise they leak in the slab until the head
+/// can open (e.g. while max concurrent remains saturated by a long-lived stream).
+#[tokio::test]
+async fn cancel_buried_pending_open_is_aborted() {
+    use std::task::Poll;
+    use std::time::Duration;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(1))
+            .await;
+        assert_default_settings!(settings);
+
+        // Stream 1 opens and holds the only concurrency slot.
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/hold")
+                .eos(),
+        )
+        .await;
+
+        // Stream 5 was cancelled while buried behind healthy stream 3 — no wire
+        // frames for it. After hold completes, stream 3 opens.
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/head")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(3).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+
+        // Wait until peer max concurrent is applied.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 1 {
+                let _ = futures::future::poll_fn(|cx| match Pin::new(&mut conn).poll(cx) {
+                    Poll::Ready(r) => Poll::Ready(r),
+                    Poll::Pending => Poll::Ready(Ok(())),
+                })
+                .await;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max=1");
+
+        // Hold stream: fill max concurrent = 1.
+        let hold = Request::builder()
+            .uri("https://example.com/hold")
+            .body(())
+            .unwrap();
+        let (hold_resp, hold_send) = client.send_request(hold, true).unwrap();
+        // `ready()` stays Pending until hold leaves pending_open (opens on wire).
+        client = conn.drive(client.ready()).await.unwrap();
+        assert_eq!(client.num_active_streams(), 1);
+
+        // Healthy head of pending_open (slot full) — keep handles so it stays.
+        let mut client_head = client.clone();
+        let head_req = Request::builder()
+            .uri("https://example.com/head")
+            .body(())
+            .unwrap();
+        let (head_resp, head_send) = client_head.send_request(head_req, true).unwrap();
+
+        // Buried *behind* head (clone clears per-handle pending).
+        let mut client_buried = client.clone();
+        let buried_req = Request::builder()
+            .uri("https://example.com/buried")
+            .body(())
+            .unwrap();
+        let (buried_resp, buried_send) = client_buried.send_request(buried_req, true).unwrap();
+
+        // Before cancel: hold + head + buried are wired.
+        assert_eq!(client.num_wired_streams(), 3);
+
+        // Cancel the *buried* stream while healthy head still blocks the queue
+        // (hold still occupies the only concurrency slot).
+        // Drop the clone too: `send_request` may stash the stream in
+        // `SendRequest::pending` when occupancy is full, which would keep a ref.
+        drop(buried_resp);
+        drop(buried_send);
+        drop(client_buried);
+
+        // Force poll_complete so abort_closed_pending_open can scan the queue.
+        for _ in 0..16 {
+            let _ = futures::future::poll_fn(|cx| match Pin::new(&mut conn).poll(cx) {
+                Poll::Ready(r) => Poll::Ready(r),
+                Poll::Pending => Poll::Ready(Ok(())),
+            })
+            .await;
+            tokio::task::yield_now().await;
+        }
+
+        // Buried stream must be freed already. Pre-fix only aborted the head of
+        // pending_open, so a cancelled stream behind a healthy head stayed wired.
+        assert_eq!(
+            client.num_wired_streams(),
+            2,
+            "cancelled buried pending_open must free its store slot \
+             (hold + head); leaked buried stream would report 3"
+        );
+
+        // Complete hold so healthy head can open.
+        drop(hold_send);
+        let hold_resp = conn.drive(hold_resp).await.expect("hold response");
+        assert_eq!(hold_resp.status(), StatusCode::OK);
+
+        let head_resp = conn.drive(head_resp).await.expect("head response");
+        assert_eq!(head_resp.status(), StatusCode::OK);
+        drop(head_send);
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(2), conn)
+            .await
+            .expect("client conn hung")
+            .expect("client conn");
+    };
+
+    join(srv, client).await;
+}

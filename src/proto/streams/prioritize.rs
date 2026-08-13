@@ -986,8 +986,8 @@ impl Prioritize {
         None
     }
 
-    /// Remove a never-sent stream from the head of `pending_open` when it can
-    /// never open (or was already cancelled/reset).
+    /// Remove never-sent streams from `pending_open` when they can never open
+    /// (or were already cancelled/reset).
     ///
     /// - Implicit cancel (`ScheduledLibraryReset`): user dropped all handles.
     /// - Explicit `send_reset` with empty `pending_send`: discarded because no
@@ -999,7 +999,11 @@ impl Prioritize {
     /// Explicit reset that still has HEADERS+RST queued is left alone when a
     /// slot may still open later (avoids RST on idle), unless max is 0.
     ///
-    /// Returns true if a stream was aborted (caller may loop).
+    /// Scans the **entire** queue (not only the head). A cancelled stream
+    /// buried behind a healthy pending_open head would otherwise leak for as
+    /// long as the head cannot open (e.g. max concurrent still full).
+    ///
+    /// Returns true if any stream was aborted (caller may loop).
     fn abort_closed_pending_open<B>(
         &mut self,
         buffer: &mut Buffer<Frame<B>>,
@@ -1007,34 +1011,48 @@ impl Prioritize {
         counts: &mut Counts,
     ) -> bool {
         let max_zero = counts.max_send_streams() == 0;
-        let Some(mut stream) = self.pending_open.pop_if(store, |s| {
-            max_zero
-                || s.state.is_scheduled_reset()
-                || (s.state.is_reset() && s.pending_send.is_empty())
-        }) else {
-            return false;
-        };
+        // Rebuild the queue so non-head abortable streams are not stranded.
+        let mut keep = store::Queue::<stream::NextOpen>::new();
+        let mut aborted = false;
 
-        tracing::trace!(
-            "abort_closed_pending_open; stream={:?}; state={:?}; max_zero={}",
-            stream.id,
-            stream.state,
-            max_zero
-        );
+        while let Some(mut stream) = self.pending_open.pop(store) {
+            counts.dec_num_pending_open();
+            let should_abort = max_zero
+                || stream.state.is_scheduled_reset()
+                || (stream.state.is_reset() && stream.pending_send.is_empty());
 
-        counts.dec_num_pending_open();
-        // Never opened on the wire: discard any leftover frames and release.
-        self.clear_queue(buffer, &mut stream);
-        self.reclaim_all_capacity(&mut stream, counts);
-        if let Some(reason) = stream.state.get_scheduled_reset() {
-            stream.set_reset(reason, Initiator::Library);
-        } else if !stream.state.is_reset() {
-            // Healthy stream that can never open (max concurrent is 0).
-            stream.set_reset(Reason::REFUSED_STREAM, Initiator::Library);
+            if !should_abort {
+                keep.push(&mut stream);
+                continue;
+            }
+
+            tracing::trace!(
+                "abort_closed_pending_open; stream={:?}; state={:?}; max_zero={}",
+                stream.id,
+                stream.state,
+                max_zero
+            );
+
+            // Never opened on the wire: discard any leftover frames and release.
+            self.clear_queue(buffer, &mut stream);
+            self.reclaim_all_capacity(&mut stream, counts);
+            if let Some(reason) = stream.state.get_scheduled_reset() {
+                stream.set_reset(reason, Initiator::Library);
+            } else if !stream.state.is_reset() {
+                // Healthy stream that can never open (max concurrent is 0).
+                stream.set_reset(Reason::REFUSED_STREAM, Initiator::Library);
+            }
+            let is_pending_reset = stream.is_pending_reset_expiration();
+            counts.transition_after(stream, is_pending_reset);
+            aborted = true;
         }
-        let is_pending_reset = stream.is_pending_reset_expiration();
-        counts.transition_after(stream, is_pending_reset);
-        true
+
+        // Preserve FIFO order of streams that still wait to open.
+        while let Some(mut stream) = keep.pop(store) {
+            self.queue_open(&mut stream, counts);
+        }
+
+        aborted
     }
 }
 

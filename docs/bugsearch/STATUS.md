@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F15: healthy `pending_open` hang when max concurrent is 0.
+F16: cancelled `pending_open` buried behind healthy head leaked.
 
 ## Last actions
-1. Confirmed **F15**: with peer `MAX_CONCURRENT_STREAMS=0`, healthy streams queued in `pending_open` (or left there after max drops) never opened; `ResponseFuture` / `poll_ready` hung.
-2. Fix: `send_request` returns `Rejected` when max is 0; `abort_closed_pending_open` aborts *all* pending_open heads when max is 0 (healthy → `REFUSED_STREAM`).
-3. Regression: `pending_open_refused_when_max_drops_to_zero`; max=0 send tests expect Rejected.
+1. Confirmed **F16**: `abort_closed_pending_open` only inspected the queue *head*. A cancelled stream behind a healthy pending_open entry stayed in the slab for as long as the head could not open (e.g. max concurrent saturated by a long-lived stream).
+2. Fix: rebuild `pending_open` scanning **all** entries; abort every cancelled/reset (or all when max=0); re-queue survivors in FIFO order.
+3. Regression: `cancel_buried_pending_open_is_aborted`.
 
 ## Next recommended step
-1. Package PRs for F3–F15.
+1. Package PRs for F3–F16.
 2. Or residual #848 API design.
 3. Or connection window recovery threshold vs Go/nghttp2 (COMPARISONS).
 
