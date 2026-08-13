@@ -26,6 +26,13 @@
 - **Change:** `Stream::open_task` + `wait_open`/`notify_open`; `poll_pending_open` uses open slot; open/reset/EOF paths notify both.
 - **Note:** `poll_capacity` and `poll_reset` still share `send_task` (single `SendStream` owner; typical `select!` is same task).
 
+### F6 — `poll_capacity` hangs after SETTINGS reclaim with capacity already assigned
+- **Severity:** Medium (missed progress / hang): after `SETTINGS_INITIAL_WINDOW_SIZE` decreases, excess connection capacity is reclaimed and may fully satisfy another stream's reservation, but `poll_capacity` only completed when `send_capacity_inc` was set. Decrease paths clear excess without setting that flag → waiter parks forever while `capacity() > 0` and `assigned >= requested`.
+- **Evidence:** Multi-stream test: stream A holds ~60k connection assignment; stream B reserves 1k; SETTINGS to 1000 reclaims from A; B ends with `available=1000` and `send_task` parked; `wait_for_capacity(B, 1000)` timed out before fix.
+- **Fix branch:** `fix/poll-capacity-after-settings-reclaim`
+- **Change:** If `capacity > 0` and `assigned >= requested`, return `Ready(Some(Ok(capacity)))` even without `send_capacity_inc`. Still `Pending` when more capacity was requested. Never `Ready(Ok(0))` (#898).
+- **Test:** `settings_decrease_reclaims_conn_capacity_to_waiting_stream`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

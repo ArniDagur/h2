@@ -4,18 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-Shared `send_task` multi-waiter (capacity vs pending_open) — fixed as F5.
+SETTINGS decrease + `poll_capacity` hang after reclaim — fixed as F6.
 
 ## Last actions
-1. Investigated multi-waiter `send_task` (priority idea: shared waker for capacity vs reset / ready).
-2. Confirmed **F5**: `SendRequest::poll_ready` while a stream is `pending_open` parked on the same `send_task` slot as `SendStream::poll_capacity` / `poll_reset`. Capacity registration overwrote the ready waker → after a concurrent stream slot freed, `ready()` never woke (hang).
-3. Fix: separate `Stream::open_task` + `wait_open`/`notify_open`; wake both on open and terminal events. Regression `pending_open_ready_not_stolen_by_poll_capacity` (fails without fix, passes with).
-4. SETTINGS_INITIAL_WINDOW_SIZE multi-stream decrease surveyed vs Go; h2 reclaim of connection capacity on decrease matches design; no new FC bug confirmed this fire. `#878` already fixed by `#893`; `#880` by `#896`.
+1. Multi-stream SETTINGS_INITIAL_WINDOW_SIZE decrease: reclaim of connection capacity from stream A to waiting stream B works (windows/available updated correctly).
+2. Confirmed **F6**: after SETTINGS shrinks assignment, `poll_capacity` required `send_capacity_inc` and hung forever even when `assigned >= requested` and `capacity() > 0` (stream B never woke to send reclaimed capacity).
+3. Fix: if usable capacity > 0 and reservation fully assigned, return `Ready` without a fresh increase flag; still `Pending` when more was requested. Regression `settings_decrease_reclaims_conn_capacity_to_waiting_stream`. Full `flow_control` suite green (50 pass / 4 ignored).
 
 ## Next recommended step
-1. Remaining shared-waker edge: `poll_capacity` vs `poll_reset` still share `send_task` (harder: `SendStream` not `Clone`; select on one task is OK).
-2. Or SETTINGS_INITIAL_WINDOW_SIZE decrease multi-stream differential / `dec_send_window` underflow TODO.
-3. Or package PRs for F3–F5.
+1. Package PRs for F3–F6.
+2. Or remaining shared-waker edge `poll_capacity` vs `poll_reset` (low practical risk).
+3. Or `dec_send_window` underflow TODO / `unclaimed_capacity` negative edges.
 
 ## Blockers
 None.
