@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F60 pending merge)
+**Branch tip:** `experimental/bugsearch` (F60 @ `efc9ff5`)
 
 ## Current focus
 F60: non-OPTIONS `:path` = `*` (asterisk-form).
