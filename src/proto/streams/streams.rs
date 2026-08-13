@@ -283,6 +283,12 @@ where
             .apply_local_window_increase(target, &mut me.store)
     }
 
+    /// Enable extended CONNECT as soon as local SETTINGS is written (F83).
+    pub fn apply_local_extended_connect_enable(&mut self) {
+        let mut me = self.inner.lock().unwrap();
+        me.actions.recv.apply_local_extended_connect_enable();
+    }
+
     pub fn send_request(
         &mut self,
         mut request: Request<()>,

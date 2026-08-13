@@ -2,6 +2,7 @@
 
 use futures::StreamExt;
 use h2_support::prelude::*;
+use std::task::Poll;
 use tokio::io::AsyncWriteExt;
 
 const SETTINGS: &[u8] = &[0, 0, 0, 4, 0, 0, 0, 0, 0];
@@ -2306,6 +2307,86 @@ async fn reject_pseudo_protocol_on_non_connect_request() {
         let mut srv = builder.handshake::<_, Bytes>(io).await.expect("handshake");
 
         assert!(srv.next().await.is_none());
+
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
+/// Mid-connection `enable_connect_protocol` must accept `:protocol` before
+/// SETTINGS_ACK (peer may use ENABLE=1 as soon as it processes SETTINGS).
+#[tokio::test]
+async fn enable_connect_protocol_before_settings_ack() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_eq!(settings.is_extended_connect_protocol_enabled(), None);
+
+        let frame = client.next().await.unwrap().unwrap();
+        match frame {
+            frame::Frame::Settings(s) => {
+                assert_eq!(s.is_extended_connect_protocol_enabled(), Some(true));
+                assert!(!s.is_ack());
+            }
+            other => panic!("expected ENABLE_CONNECT SETTINGS, got {:?}", other),
+        }
+        // Deliberately no SETTINGS_ACK.
+
+        client
+            .send_frame(frames::headers(1).pseudo(frame::Pseudo::request(
+                Method::CONNECT,
+                uri::Uri::from_static("http://bread/baguette"),
+                Protocol::from_static("the-bread-protocol").into(),
+            )))
+            .await;
+
+        client.recv_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        // Initial SETTINGS is WaitingAck until the client's ACK is read.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if srv.enable_connect_protocol().is_ok() {
+                    break;
+                }
+                poll_fn(|cx| {
+                    match srv.poll_closed(cx) {
+                        Poll::Ready(r) => r.expect("server closed while enabling"),
+                        Poll::Pending => {}
+                    }
+                    Poll::Ready(())
+                })
+                .await;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timed out enabling connect protocol");
+
+        let (req, mut stream) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            srv.next(),
+        )
+        .await
+        .expect("timed out waiting for extended CONNECT")
+        .expect("connection closed")
+        .expect(":protocol before SETTINGS_ACK must not RST");
+
+        assert_eq!(
+            req.extensions().get::<crate::ext::Protocol>(),
+            Some(&crate::ext::Protocol::from_static("the-bread-protocol"))
+        );
+
+        stream
+            .send_response(Response::new(()), true)
+            .unwrap();
 
         poll_fn(move |cx| srv.poll_closed(cx))
             .await

@@ -892,6 +892,12 @@ impl Recv {
         Ok(())
     }
 
+    /// Enable extended CONNECT when we *write* SETTINGS. The peer may send
+    /// `:protocol` as soon as it processes the frame, which can race ACK.
+    pub(crate) fn apply_local_extended_connect_enable(&mut self) {
+        self.is_extended_connect_protocol_enabled = true;
+    }
+
     /// Expand local recv windows when advertising a larger INITIAL_WINDOW_SIZE.
     ///
     /// Called when the SETTINGS frame is written so peers may send under the

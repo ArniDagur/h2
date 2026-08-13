@@ -172,6 +172,11 @@ impl Settings {
                     dst.set_recv_header_table_size_increase(sz as usize);
                 }
 
+                // Peer may send CONNECT+:protocol as soon as it sees ENABLE=1.
+                if settings.is_extended_connect_protocol_enabled() == Some(true) {
+                    streams.apply_local_extended_connect_enable();
+                }
+
                 self.local = Local::WaitingAck(settings.clone());
             }
             Local::WaitingAck(..) | Local::Synced => {}
