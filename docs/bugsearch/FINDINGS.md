@@ -478,6 +478,12 @@
 - **Change:** On send of local SETTINGS (handshake + mid-connection `ToSend`), `set_recv_header_table_size_increase` (no-op unless larger). ACK path still `set_recv_header_table_size` for decreases.
 - **Matches Go:** Go constructs the decoder at the configured max from the start.
 
+### F83 — Mid-connection ENABLE_CONNECT_PROTOCOL applied only on SETTINGS_ACK
+- **Severity:** Medium (interop): F10/F82 sibling. `Connection::enable_connect_protocol` queues SETTINGS. Recv rejected `:protocol` until SETTINGS_ACK. Peer may send extended CONNECT as soon as it processes ENABLE=1.
+- **Evidence:** Handshake without extended CONNECT, then `enable_connect_protocol()`, CONNECT+`:protocol` with no ACK: pre-fix `RST_STREAM(PROTOCOL_ERROR)`; post-fix request accepted. Builder-at-handshake path already set the flag in `Recv::new`. Regression `enable_connect_protocol_before_settings_ack`.
+- **Fix branch:** `fix/local-extended-connect-enable-before-ack`
+- **Change:** When writing local SETTINGS with ENABLE_CONNECT_PROTOCOL=1, set Recv flag immediately. ACK path remains (idempotent).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

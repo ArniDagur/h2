@@ -267,6 +267,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F82):** increases applied when SETTINGS is written (handshake + mid-connection send); decreases still on ACK.
 - **Verdict:** F82 is an h2-local race fix, same class as F10; aligns with Go and RFC 7541.
 
+### Local SETTINGS_ENABLE_CONNECT_PROTOCOL enable timing
+- **RFC 8441:** once advertised, the peer may send CONNECT with `:protocol`.
+- **Rust h2 (pre-F83):** builder path set Recv flag at `Connection::new`; mid-connection `enable_connect_protocol()` only applied on SETTINGS_ACK → RST PROTOCOL_ERROR on a legal request.
+- **Rust h2 (F83):** enable applied when SETTINGS is written. ACK still sets the flag (idempotent).
+- **Verdict:** F83 is an h2-local race fix, same class as F10/F82.
+
 ### Graceful GOAWAY + 1-RTT PING
 - **Go:** after initial GOAWAY, `goAwayTimeout` (~1s) then close if not idle.
 - **Rust h2:** wait indefinitely for shutdown-PING ACK before the second GOAWAY; `abrupt_shutdown` closes now.

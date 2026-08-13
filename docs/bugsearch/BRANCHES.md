@@ -86,6 +86,7 @@
 | `fix/recv-drop-releases-read-unreleased-capacity` | F80 |
 | `fix/drop-send-without-eos-resets` | F81 |
 | `fix/local-header-table-increase-before-ack` | F82 |
+| `fix/local-extended-connect-enable-before-ack` | F83 |
 
 ## experimental contains
-F1–F82, I1–I2, deadlock stress test, docs.
+F1–F83, I1–I2, deadlock stress test, docs.
