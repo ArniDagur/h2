@@ -1405,3 +1405,71 @@ async fn implicit_cancel_with_max_concurrent_stream() {
 
     join(mock, h2).await;
 }
+
+/// Remote RST_STREAM after response headers (no EOS) must surface the error
+/// once on RecvStream, then end the stream (None) instead of sticky errors.
+///
+/// Regression for hyperium/h2#882-style loops: `while let Some(x) = body.data()`
+/// would spin forever if every poll re-yielded the same Reset error.
+#[tokio::test]
+async fn recv_stream_reset_error_is_not_sticky() {
+    h2_support::trace_init!();
+
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(frames::data(1, &b"partial"[..])).await;
+        srv.send_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let mut body = resp.into_body();
+
+        // First data frame
+        let chunk = conn
+            .drive(async { body.data().await })
+            .await
+            .expect("some")
+            .expect("ok");
+        assert_eq!(chunk, &b"partial"[..]);
+
+        // Next poll delivers the remote reset once
+        let err = conn
+            .drive(async { body.data().await })
+            .await
+            .expect("some")
+            .expect_err("reset");
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        assert!(!body.is_end_stream());
+
+        // Subsequent polls must end the stream, not repeat the error
+        for _ in 0..3 {
+            let again = conn.drive(async { body.data().await }).await;
+            assert!(again.is_none(), "expected None after error delivered, got {:?}", again);
+        }
+        assert!(!body.is_end_stream());
+
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, client).await;
+}

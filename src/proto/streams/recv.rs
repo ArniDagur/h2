@@ -342,13 +342,20 @@ impl Recv {
         if let Some(p) = pushed {
             Poll::Ready(Some(Ok(p)))
         } else {
-            let is_open = stream.state.ensure_recv_open(stream.id)?;
-
-            if is_open {
-                stream.push_task = Some(cx.waker().clone());
-                Poll::Pending
-            } else {
-                Poll::Ready(None)
+            match stream.state.ensure_recv_open(stream.id) {
+                Ok(true) => {
+                    stream.push_task = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+                Ok(false) => Poll::Ready(None),
+                Err(e) => {
+                    if stream.recv_err_delivered {
+                        Poll::Ready(None)
+                    } else {
+                        stream.recv_err_delivered = true;
+                        Poll::Ready(Some(Err(e)))
+                    }
+                }
             }
         }
     }
@@ -417,13 +424,20 @@ impl Recv {
         }
 
         // No informational response available at the front
-        if stream.state.ensure_recv_open(stream.id)? {
-            // Request to get notified once more frames arrive
-            stream.recv_task = Some(cx.waker().clone());
-            Poll::Pending
-        } else {
-            // No more frames will be received
-            Poll::Ready(None)
+        match stream.state.ensure_recv_open(stream.id) {
+            Ok(true) => {
+                stream.recv_task = Some(cx.waker().clone());
+                Poll::Pending
+            }
+            Ok(false) => Poll::Ready(None),
+            Err(e) => {
+                if stream.recv_err_delivered {
+                    Poll::Ready(None)
+                } else {
+                    stream.recv_err_delivered = true;
+                    Poll::Ready(Some(Err(e)))
+                }
+            }
         }
     }
 
@@ -1305,13 +1319,26 @@ impl Recv {
         cx: &Context,
         stream: &mut Stream,
     ) -> Poll<Option<Result<T, proto::Error>>> {
-        if stream.state.ensure_recv_open(stream.id)? {
-            // Request to get notified once more frames arrive
-            stream.recv_task = Some(cx.waker().clone());
-            Poll::Pending
-        } else {
-            // No more frames will be received
-            Poll::Ready(None)
+        match stream.state.ensure_recv_open(stream.id) {
+            Ok(true) => {
+                // Request to get notified once more frames arrive
+                stream.recv_task = Some(cx.waker().clone());
+                Poll::Pending
+            }
+            Ok(false) => {
+                // Clean end of stream (or reset after EOS)
+                Poll::Ready(None)
+            }
+            Err(e) => {
+                // Deliver stream errors once; further polls end the stream so
+                // `while let Some(item) = body.data().await` does not spin.
+                if stream.recv_err_delivered {
+                    Poll::Ready(None)
+                } else {
+                    stream.recv_err_delivered = true;
+                    Poll::Ready(Some(Err(e)))
+                }
+            }
         }
     }
 }

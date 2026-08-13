@@ -103,6 +103,11 @@ pub(super) struct Stream {
     /// When the RecvStream drop occurs, no data should be received.
     pub is_recv: bool,
 
+    /// After a stream error is delivered once via `poll_data` / `poll_trailers`
+    /// (or push/informational polls), further polls return `None` instead of
+    /// repeating the same error forever.
+    pub recv_err_delivered: bool,
+
     /// Task tracking receiving frames
     pub recv_task: Option<Waker>,
 
@@ -190,6 +195,7 @@ impl Stream {
             next_reset_expire: None,
             pending_recv: buffer::Deque::new(),
             is_recv: true,
+            recv_err_delivered: false,
             recv_task: None,
             push_task: None,
             pending_push_promises: store::Queue::new(),
