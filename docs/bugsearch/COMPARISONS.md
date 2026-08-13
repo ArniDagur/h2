@@ -47,6 +47,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F33):** stream PROTOCOL_ERROR before `recv_open`.
 - **Verdict:** F33 aligns with Go/RFC.
 
+### Cap on number of 1xx responses
+- **Go:** `max1xxResponses = 5` when the user does not examine 1xx via trace hook.
+- **Rust h2 (pre-F35):** unlimited queue in `pending_recv`.
+- **Rust h2 (F35):** hard cap 5 per stream; further 1xx → ENHANCE_YOUR_CALM (always, including when user polls informational).
+- **Verdict:** F35 matches Go intent; slightly stricter when user drains 1xx (still capped at 5 total).
+
 ## Planned comparisons
-- Cap on number of 1xx responses (Go `max1xxResponses = 5`) — optional h2 hardening, not a clear RFC must.
 - Residual #848 API design.

@@ -38,6 +38,7 @@
 | `fix/reject-pseudo-in-trailers` | F32 |
 | `fix/reject-informational-end-stream` | F33 |
 | `fix/ignore-content-length-on-1xx` | F34 |
+| `fix/cap-recv-informational` | F35 |
 
 ## experimental contains
-F1–F34, I1–I2, deadlock stress test, docs.
+F1–F35, I1–I2, deadlock stress test, docs.

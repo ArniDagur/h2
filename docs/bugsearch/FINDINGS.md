@@ -184,6 +184,12 @@
 - **Fix branch:** `fix/ignore-content-length-on-1xx`
 - **Change:** Skip Content-Length bookkeeping when `frame.is_informational()`.
 
+### F35 — Uncapped informational (1xx) HEADERS (memory DoS)
+- **Severity:** Medium (resource / DoS): Each 1xx is stored as `Event::InformationalHeaders` in `pending_recv` until drained or skipped by `poll_response`. A peer could flood 1xx without a final response. Go caps at `max1xxResponses = 5`.
+- **Evidence:** Six 100 Continue frames — post-fix sixth gets `RST_STREAM(ENHANCE_YOUR_CALM)`; first five still deliverable. Regression `too_many_informational_responses_is_stream_error`.
+- **Fix branch:** `fix/cap-recv-informational`
+- **Change:** `Stream::recv_informational_count` + `DEFAULT_MAX_RECV_INFORMATIONAL` (5); reject further 1xx with ENHANCE_YOUR_CALM.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
