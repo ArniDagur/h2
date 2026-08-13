@@ -631,6 +631,63 @@ async fn request_with_authority_without_scheme_is_user_error() {
     join(srv, h2).await;
 }
 
+/// Asterisk-form `:path` is only valid for OPTIONS (RFC 9110 §7.1).
+#[tokio::test]
+async fn request_asterisk_path_non_options_is_user_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("OPTIONS", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // OPTIONS with path * — server may not care about exact path form here;
+        // just ensure the rejected GET * did not burn stream 1 incorrectly.
+        // Actually after UserError the next valid request uses stream 1.
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.expect("handshake");
+
+        // GET with path * via URI path_and_query
+        let mut parts = http::uri::Parts::default();
+        parts.scheme = Some("https".parse().unwrap());
+        parts.authority = Some("example.com".parse().unwrap());
+        parts.path_and_query = Some(uri::PathAndQuery::from_static("*"));
+        let uri = http::Uri::from_parts(parts).unwrap();
+
+        let request = Request::builder()
+            .version(Version::HTTP_2)
+            .method(Method::GET)
+            .uri(uri)
+            .body(())
+            .unwrap();
+
+        client
+            .send_request(request, true)
+            .expect_err("GET * must be UserError");
+
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .method(Method::OPTIONS)
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = h2.drive(resp).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        drop(client);
+        h2.await.expect("h2");
+    };
+
+    join(srv, h2).await;
+}
+
 /// Empty `:scheme` is not a valid scheme token (RFC 3986 §3.1). http::Uri can
 /// carry scheme="" (e.g. `://example.com/`); must not put empty :scheme on wire.
 #[tokio::test]

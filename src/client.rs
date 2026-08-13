@@ -1673,6 +1673,15 @@ impl Peer {
             pseudo.set_scheme(uri::Scheme::HTTP);
         }
 
+        // Asterisk-form `:path` is only valid for OPTIONS (RFC 9110 §7.1).
+        if !is_connect {
+            if pseudo.path.as_ref().map(|p| p.as_str()) == Some("*")
+                && pseudo.method.as_ref() != Some(&Method::OPTIONS)
+            {
+                return Err(UserError::MalformedHeaders.into());
+            }
+        }
+
         // Create the HEADERS frame
         let mut frame = Headers::new(id, pseudo, headers);
 

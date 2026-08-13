@@ -338,6 +338,12 @@
 - **Fix branch:** `fix/reject-empty-scheme`
 - **Change:** Server `convert_poll_message` rejects empty scheme; client `convert_send_message` and push convert treat empty like missing.
 
+### F60 — Non-OPTIONS `:path` = `*` accepted
+- **Severity:** Medium (protocol): RFC 9110 §7.1 asterisk-form is only for OPTIONS; RFC 9113 §8.3.1 allows `:path` of `*` for that case. nghttp2 rejects `*` for non-OPTIONS on http/https. Pre-fix, `PathAndQuery` accepted `*` for any method (GET `*` delivered as a normal request).
+- **Evidence:** GET + `:path: *` → post-fix `RST_STREAM(PROTOCOL_ERROR)`; OPTIONS + `*` still accepted. Outbound GET with URI path `*` → `MalformedHeaders`. Regressions: `reject_asterisk_path_for_non_options`, `request_asterisk_path_non_options_is_user_error`.
+- **Fix branch:** `fix/reject-asterisk-path-non-options`
+- **Change:** Server recv + client send + push convert reject `path == "*"` unless method is OPTIONS.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

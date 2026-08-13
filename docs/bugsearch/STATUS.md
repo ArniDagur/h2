@@ -1,20 +1,21 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F59 @ `ec0114d`)
+**Branch tip:** `experimental/bugsearch` (F60 pending merge)
 
 ## Current focus
-F59: empty `:scheme` accepted on receive and generate.
+F60: non-OPTIONS `:path` = `*` (asterisk-form).
 
 ## Last actions
-1. Confirmed **F59**: empty scheme string is not a valid RFC 3986 scheme; `http::uri::Scheme` still parses `""`, so present-but-empty `:scheme` bypassed missing-scheme checks.
-2. Fix: reject empty on server recv convert, client send convert, and push convert.
-3. Regressions: `reject_request_empty_scheme_pseudo`, `request_with_empty_scheme_is_user_error`.
+1. Confirmed **F60**: asterisk-form is OPTIONS-only (RFC 9110 §7.1); nghttp2 enforces same for http/https. h2 accepted GET `*` via PathAndQuery.
+2. Fix: reject `*` path unless OPTIONS on server recv, client send, and push convert.
+3. Regressions: `reject_asterisk_path_for_non_options`, `request_asterisk_path_non_options_is_user_error`.
+4. Note: `:path` starting with `//` accepted by nghttp2 (starts with `/`) → not fix-worthy vs reference.
 
 ## Next recommended step
-1. Package PRs for F3–F59.
+1. Package PRs for F3–F60.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (e.g. non-OPTIONS `:path` `*`, `//` path-absolute).
+3. Further FC/wakeup / protocol hunt.
 
 ## Blockers
 None.

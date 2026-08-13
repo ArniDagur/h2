@@ -1633,6 +1633,13 @@ impl Peer {
             _ => {}
         }
 
+        // Asterisk-form is OPTIONS-only (RFC 9110 §7.1); also unlikely for push.
+        if pseudo.path.as_ref().map(|p| p.as_str()) == Some("*")
+            && pseudo.method.as_ref() != Some(&Method::OPTIONS)
+        {
+            return Err(UserError::MalformedHeaders);
+        }
+
         // Connection-specific fields must be rejected here so `push_request`
         // can fail before reserve_local (send_push_promise also checks).
         if headers.contains_key(http::header::CONNECTION)
@@ -1692,9 +1699,11 @@ impl proto::Peer for Peer {
         b = b.version(Version::HTTP_2);
 
         let is_connect;
-        if let Some(method) = pseudo.method {
-            is_connect = method == Method::CONNECT;
-            b = b.method(method);
+        let method;
+        if let Some(m) = pseudo.method {
+            is_connect = m == Method::CONNECT;
+            method = m.clone();
+            b = b.method(m);
         } else {
             malformed!("malformed headers: missing method");
         }
@@ -1778,6 +1787,13 @@ impl proto::Peer for Peer {
             // This cannot be empty
             if path.is_empty() {
                 malformed!("malformed headers: missing path");
+            }
+
+            // RFC 9110 §7.1 / RFC 9113 §8.3.1: asterisk-form (`*`) is only for
+            // OPTIONS. nghttp2 enforces the same for http/https. Other methods
+            // with `:path: *` were accepted via PathAndQuery.
+            if path.as_str() == "*" && method != Method::OPTIONS {
+                malformed!("malformed headers: asterisk :path only allowed for OPTIONS");
             }
 
             let maybe_path = uri::PathAndQuery::from_maybe_shared(path.clone().into_inner());

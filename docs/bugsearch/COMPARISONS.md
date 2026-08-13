@@ -78,6 +78,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F59):** empty rejected on recv and generate (treated like missing on generate).
 - **Verdict:** F59 closes the empty-string hole left by the missing-only checks.
 
+### Asterisk-form `:path`
+- **RFC 9110 §7.1 / RFC 9113 §8.3.1:** `:path` of `*` is for OPTIONS only.
+- **nghttp2:** for http/https, requires path-regular (`/`…) or (OPTIONS and path-asterisk).
+- **Rust h2 (pre-F60):** any method with `:path: *` accepted via PathAndQuery.
+- **Rust h2 (F60):** reject non-OPTIONS `*`; OPTIONS `*` still OK.
+- **`:path` with `//` prefix:** nghttp2 counts as path-regular (starts with `/`); h2 matches — not fix-worthy.
+
 ### Response with request pseudo-headers
 - **RFC 9113 §8.3.2:** responses MUST NOT include `:method`/`:scheme`/`:authority`/`:path`/`:protocol`.
 - **Rust h2 (pre-F38):** only enforced missing `:status` (F36); request pseudos ignored if status present.

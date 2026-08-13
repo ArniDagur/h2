@@ -2453,6 +2453,67 @@ async fn reject_request_missing_path_pseudo() {
     join(client, srv).await;
 }
 
+/// RFC 9110 §7.1: asterisk-form request-target (`*`) is only for OPTIONS.
+/// nghttp2 enforces the same for http/https. Pre-fix PathAndQuery accepted `*`.
+#[tokio::test]
+async fn reject_asterisk_path_for_non_options() {
+    h2_support::trace_init!();
+
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+
+        // GET with :path = * is malformed.
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("https").into(),
+                        authority: util::byte_str("example.com").into(),
+                        path: util::byte_str("*").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        // OPTIONS * remains valid.
+        client
+            .send_frame(
+                frames::headers(3)
+                    .pseudo(frame::Pseudo {
+                        method: Method::OPTIONS.into(),
+                        scheme: util::byte_str("https").into(),
+                        authority: util::byte_str("example.com").into(),
+                        path: util::byte_str("*").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(3).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), Method::OPTIONS);
+        assert_eq!(req.uri().path(), "*");
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 3986 §3.1 / RFC 9113 §8.3.1: `:scheme` must be a non-empty scheme token.
 /// `http::uri::Scheme` accepts `""`, so empty was previously treated as present.
 #[tokio::test]

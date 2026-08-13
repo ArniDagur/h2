@@ -63,6 +63,7 @@
 | `fix/reject-101-switching-protocols` | F57 |
 | `fix/requested-capacity-floor-after-send` | F58 |
 | `fix/reject-empty-scheme` | F59 |
+| `fix/reject-asterisk-path-non-options` | F60 |
 
 ## experimental contains
-F1–F59, I1–I2, deadlock stress test, docs.
+F1–F60, I1–I2, deadlock stress test, docs.

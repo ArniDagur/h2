@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F59 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F60 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -58,6 +58,7 @@
 - 101 Switching Protocols accepted → F57.
 - requested_send_capacity zero while buffered DATA remains → F58.
 - Empty `:scheme` accepted → F59.
+- Non-OPTIONS `:path` = `*` → F60.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - TE not exactly `trailers`: already rejected in load_hpack (`value != "trailers"`).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
@@ -67,7 +68,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F59.
+1. Package PRs for F3–F60.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -83,5 +84,4 @@
 - RST_STREAM / PRIORITY framing edge cases on stream 0 (recv path already checks RST id 0 in streams).
 - 205 with Content-Length: 0 still allowed (HTTP/1.1 style empty section); optional strip for pure H2.
 - Extended CONNECT body Content-Length tracking (allowed; not special-cased).
-- Non-OPTIONS `:path` = `*` (asterisk-form is OPTIONS-only per RFC 9110 §7.1).
-- `:path` starting with `//` (not path-absolute; PathAndQuery accepts it).
+- `:path` starting with `//`: nghttp2 treats any path starting with `/` as regular (not full path-absolute check) — match reference, not fix-worthy.
