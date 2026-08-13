@@ -54,6 +54,14 @@ impl Future for WaitForCapacity {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
+            // Check current assignment first: capacity may already meet the
+            // target without a fresh `send_capacity_inc` (e.g. after SETTINGS).
+            let act = self.stream().capacity();
+            if act >= self.target {
+                assert_ne!(act, 0);
+                return Poll::Ready(self.stream.take().unwrap());
+            }
+
             let _ = ready!(self.stream().poll_capacity(cx)).unwrap();
 
             let act = self.stream().capacity();
