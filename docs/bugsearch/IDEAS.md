@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F30 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F31 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -29,12 +29,13 @@
 - Client check_headers before open → F28.
 - poll_capacity hang with usable capacity below full reservation → F29.
 - Server early-response NO_ERROR + zero stream window hang → F30.
+- InFlightData::Drop FC leak → dismissed (S3 false positive).
+- poll_reset hang after clean EndStream → F31.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Prove/fix S3: `InFlightData::Drop` restore send windows for unsent bytes (`new_with_write_capacity`).
-2. Package PRs for F3–F30.
-3. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
+1. Package PRs for F3–F31.
+2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
 - Upstream notes on findings.

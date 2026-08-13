@@ -160,6 +160,12 @@
 - **Fix branch:** `fix/no-error-reset-zero-window`
 - **Change:** `maybe_cancel` uses NO_ERROR only when response can still flush (`buffered==0` or stream `window_size>0` or `available>0`); otherwise CANCEL so pop_frame discards body and emits RST.
 
+### F31 — `poll_reset` hangs after clean EndStream
+- **Severity:** Medium (hang / API): `State::ensure_reason` treated `Closed(EndStream)` like an open stream (`Ok(None)`), so `SendStream::poll_reset` registered a waker and returned `Pending` forever when the exchange finished without `RST_STREAM`.
+- **Evidence:** Request with EOS + response EOS; `poll_reset` timed out pre-fix. Post-fix: ready `Err` (`inactive stream`). RST path still works (`send_stream_poll_reset`). Regression `poll_reset_after_clean_eos_must_not_hang`.
+- **Fix branch:** `fix/poll-reset-after-end-stream`
+- **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
@@ -167,6 +173,7 @@
 ## Dismissed
 ### S1 — #853 — likely fixed by #860
 ### S2 — sticky poll → F4
+### S3 — InFlightData::Drop capacity leak — false positive: Drop means codec still owns the frame and will write it; remaining body in the Take is intentional cancel discard, only the charged chunk is sent. FC accounting matches wire intent.
 ### #878 / #880 — fixed upstream
 ### `dec_send_window` underflow — i32 extremes only
 ### #848 clone ready-at-max-open — design (queue beyond max); F9 only fixes pending_open occupancy hole
@@ -174,8 +181,4 @@
 ### #882 `is_end_stream` false after reset — intentional (#810); sticky `data()` fixed by F4
 
 ## Suspects
-### S3 — In-flight DATA cancel leaks send flow-control for unsent bytes
-- **Severity:** Low–medium (correctness / capacity): On `pop_frame` DATA, stream+connection send windows are charged for the full chunk before the codec writes it. If the stream is cancelled while that frame is still in the codec (`clear_queue` → `InFlightData::Drop`), `reclaim_frame_inner` drops remaining payload without restoring windows for unsent bytes. Peer never received those octets, so our send window stays permanently reduced (up to one max-frame chunk).
-- **Evidence:** Code path only so far (`prioritize.rs` Drop arm + `send_data`/`flow.send_data` before buffer). Existing `rst_with_buffered_data` uses `new_with_write_capacity(73)` but does not assert window restoration.
-- **Not confirmed:** Need a regression that cancels mid-partial-write and checks subsequent stream/connection send capacity.
-- **Status:** open (next fire).
+None active.

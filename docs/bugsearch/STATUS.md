@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-Suspect S3: in-flight DATA cancel may leak send-side flow-control for unsent bytes (`InFlightData::Drop`).
+F31: `poll_reset` hung after clean EndStream (no RST).
 
 ## Last actions
-1. Hunt after F30: GOAWAY vs `pending_open` occupancy — already freed via `abort_closed_pending_open` (`is_reset` + empty queue); cannot repro occupancy stuck because remote GOAWAY sets `conn_error` (no new streams on that conn).
-2. Identified **S3**: when `clear_queue` marks `in_flight_data_frame = Drop` during cancel, `reclaim_frame_inner` discards remaining payload without restoring stream/connection send windows charged when the frame was popped. Permanent send capacity shrink for unsent bytes (up to max frame size). Needs repro with `mock::new_with_write_capacity` partial writes.
-3. No new confirmed fix this fire.
+1. Dismissed **S3** (`InFlightData::Drop` FC leak): false positive — Drop means codec still owns/writes the frame; remaining body discard on cancel is intentional.
+2. Confirmed **F31**: `ensure_reason` returned `Ok(None)` for `Closed(EndStream)`, so `poll_reset` Pending forever after a normal exchange.
+3. Fix: `Closed(EndStream)` → `Err(InactiveStreamId)`. Regression `poll_reset_after_clean_eos_must_not_hang`.
 
 ## Next recommended step
-1. Prove/fix S3 (in-flight Drop capacity restore) with limited write capacity.
-2. Package PRs for F3–F30.
-3. Residual #848 API ready-at-max-open.
+1. Package PRs for F3–F31.
+2. Residual #848 API ready-at-max-open.
+3. Further FC/wakeup hunt.
 
 ## Blockers
 None.
