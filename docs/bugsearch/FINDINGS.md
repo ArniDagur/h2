@@ -218,6 +218,12 @@
 - **Fix branch:** `fix/reject-mismatched-content-length`
 - **Change:** Walk `get_all(CONTENT_LENGTH)`; require all values parse equal; first establishes the length.
 
+### F40 — `Content-Length` in trailer HEADERS accepted / generatable
+- **Severity:** Medium (protocol): RFC 9113 §8.1 forbids framing-related trailer fields (`Content-Length`, `Transfer-Encoding`). TE/connection headers already rejected in `load_hpack` / `check_headers`; `Content-Length` was neither connection-specific nor checked in trailer context.
+- **Evidence:** Response headers then trailer HEADERS+EOS with `content-length: 5` — pre-fix stream closed EndStream and delivered trailers; post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_trailers` with CL was `Ok` pre-fix. Regressions: `recv_trailers_with_content_length_is_stream_error`; send assertion in `send_trailers_rejects_connection_specific_headers`.
+- **Fix branch:** `fix/reject-content-length-in-trailers`
+- **Change:** `recv_trailers` rejects `CONTENT_LENGTH` before `recv_close`; `send_trailers` returns `MalformedHeaders` before state transition.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

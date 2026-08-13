@@ -77,5 +77,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F39):** all CL field values must parse equal; else stream PROTOCOL_ERROR.
 - **Verdict:** F39 is an h2 protocol/framing correctness fix.
 
+### Content-Length in trailers
+- **RFC 9113 §8.1:** framing fields (`Content-Length`, `Transfer-Encoding`) MUST NOT be sent as trailers.
+- **Rust h2 (pre-F40):** TE rejected as connection-specific; CL accepted on recv and generatable via `send_trailers`.
+- **Rust h2 (F40):** stream PROTOCOL_ERROR on recv; `MalformedHeaders` on send.
+- **Verdict:** F40 aligns with RFC sender/receiver framing rules for trailers.
+
 ## Planned comparisons
 - Residual #848 API design.
