@@ -3072,3 +3072,98 @@ async fn poll_capacity_window_update_settings_race() {
 
     join(srv, h2).await;
 }
+
+/// After connection capacity is exhausted, a stream with buffered DATA and
+/// available==0 must still resume when a connection WINDOW_UPDATE arrives.
+///
+/// Guards the re-queue-to-`pending_capacity` paths in `pop_frame` /
+/// `push_back_frame` (see S3 in bugsearch notes): if the stream falls off
+/// both `pending_send` and `pending_capacity`, this hangs forever.
+#[tokio::test]
+async fn connection_window_update_resumes_starved_buffered_stream() {
+    h2_support::trace_init!();
+
+    let (io, mut srv) = mock::new();
+
+    let body_a = vec![0u8; 65_535];
+    let body_b = vec![1u8; 1024];
+    let body_b_expect = body_b.clone();
+
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        let mut got1 = 0usize;
+        let mut got3 = 0usize;
+        let mut saw_hdr1 = false;
+        let mut saw_hdr3 = false;
+
+        // Accept headers/data for both streams; connection window only covers stream 1's body
+        // until we explicitly WINDOW_UPDATE.
+        while got1 < 65_535 || !saw_hdr3 {
+            let f = srv.next().await.unwrap().unwrap();
+            match f {
+                h2::frame::Frame::Headers(h) if h.stream_id() == 1 => saw_hdr1 = true,
+                h2::frame::Frame::Headers(h) if h.stream_id() == 3 => saw_hdr3 = true,
+                h2::frame::Frame::Data(d) if d.stream_id() == 1 => {
+                    got1 += d.payload().len();
+                }
+                h2::frame::Frame::Data(d) if d.stream_id() == 3 => {
+                    panic!("stream 3 data before connection WINDOW_UPDATE: {:?}", d);
+                }
+                other => panic!("unexpected before WINDOW_UPDATE: {:?}", other),
+            }
+        }
+        assert!(saw_hdr1);
+        assert_eq!(got1, 65_535);
+
+        srv.send_frame(frames::window_update(0, 1024)).await;
+
+        while got3 < 1024 {
+            let f = srv.next().await.unwrap().unwrap();
+            match f {
+                h2::frame::Frame::Data(d) if d.stream_id() == 3 => {
+                    got3 += d.payload().len();
+                }
+                other => panic!("unexpected while receiving stream 3: {:?}", other),
+            }
+        }
+        assert_eq!(got3, 1024);
+        assert_eq!(body_b_expect.len(), 1024);
+
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        srv.send_frame(frames::headers(3).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.unwrap();
+
+        let req = || {
+            Request::builder()
+                .method(Method::POST)
+                .uri("https://example.com/")
+                .body(())
+                .unwrap()
+        };
+
+        let (resp1, mut s1) = client.send_request(req(), false).unwrap();
+        s1.send_data(body_a.into(), true).unwrap();
+
+        let (resp3, mut s3) = client.send_request(req(), false).unwrap();
+        // Buffer data that cannot send until connection WINDOW_UPDATE.
+        s3.send_data(body_b.into(), true).unwrap();
+
+        let r1 = h2.drive(resp1).await.unwrap();
+        assert_eq!(r1.status(), StatusCode::OK);
+        let r3 = h2.drive(resp3).await.unwrap();
+        assert_eq!(r3.status(), StatusCode::OK);
+
+        h2.await.unwrap();
+    };
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), join(mock, h2)).await;
+    assert!(
+        result.is_ok(),
+        "timed out: starved buffered stream did not resume after connection WINDOW_UPDATE"
+    );
+}

@@ -661,6 +661,10 @@ impl Prioritize {
         if stream.send_flow.available() > 0 {
             debug_assert!(!stream.pending_send.is_empty());
             self.pending_send.push(stream);
+        } else if stream.send_flow.has_unavailable() {
+            // Remainder of a partially written DATA frame with no assigned
+            // capacity: wait for connection capacity (stream window still open).
+            self.pending_capacity.push(stream);
         }
     }
 
@@ -767,17 +771,20 @@ impl Prioritize {
                             if sz > 0 && stream_capacity == 0 {
                                 tracing::trace!("stream capacity is 0");
 
-                                // Ensure that the stream is waiting for
-                                // connection level capacity
-                                //
-                                // TODO: uncomment
-                                // debug_assert!(stream.is_pending_send_capacity);
-
                                 // The stream has no more capacity, this can
                                 // happen if the remote reduced the stream
-                                // window. In this case, we need to buffer the
-                                // frame and wait for a window update...
+                                // window or connection capacity was reclaimed
+                                // after the stream was scheduled. Buffer the
+                                // frame and wait for a window update.
+                                //
+                                // Ensure we are in `pending_capacity` when more
+                                // connection capacity would help; otherwise a
+                                // later connection WINDOW_UPDATE will never
+                                // re-schedule this stream (S3).
                                 stream.pending_send.push_front(buffer, frame.into());
+                                if stream.send_flow.has_unavailable() {
+                                    self.pending_capacity.push(&mut stream);
+                                }
 
                                 continue;
                             }
@@ -798,6 +805,11 @@ impl Prioritize {
                             // peer knows is not.
                             if len > 0 && len > stream.send_flow.window_size() {
                                 stream.pending_send.push_front(buffer, frame.into());
+                                // Same as the capacity==0 path: do not leave the
+                                // stream off both send and capacity queues.
+                                if stream.send_flow.has_unavailable() {
+                                    self.pending_capacity.push(&mut stream);
+                                }
                                 continue;
                             }
 
