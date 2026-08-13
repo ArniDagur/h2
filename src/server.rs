@@ -1601,6 +1601,11 @@ impl Peer {
 
         let pseudo = Pseudo::request(method, uri, None);
 
+        // Pushed requests are never CONNECT; `:scheme` is required (RFC 9113 §8.3.1).
+        if pseudo.scheme.is_none() {
+            return Err(UserError::MissingUriSchemeAndAuthority);
+        }
+
         Ok(frame::PushPromise::new(
             stream_id,
             promised_id,

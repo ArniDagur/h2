@@ -95,7 +95,7 @@ impl fmt::Display for UserError {
             ReleaseCapacityTooBig => "release capacity too big",
             OverflowedStreamId => "stream ID overflowed",
             MalformedHeaders => "malformed headers",
-            MissingUriSchemeAndAuthority => "request URI missing scheme and authority",
+            MissingUriSchemeAndAuthority => "request URI missing scheme or authority",
             PollResetAfterSendResponse => "poll_reset after send_response is illegal",
             SendPingWhilePending => "send_ping before received previous pong",
             SendSettingsWhilePending => "sending SETTINGS before received previous ACK",

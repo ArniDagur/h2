@@ -331,7 +331,14 @@ where
             return Err(UserError::UnexpectedFrameType.into());
         }
 
+        // Validate / convert before `open()` so a UserError does not burn a
+        // stream id (HTTP/2 allows id skips, but wasting ids is unnecessary).
+        let is_head = *request.method() == Method::HEAD;
+        let stream_id = me.actions.send.ensure_next_stream_id()?;
+        let headers =
+            client::Peer::convert_send_message(stream_id, request, protocol, end_of_stream)?;
         let stream_id = me.actions.send.open()?;
+        debug_assert_eq!(stream_id, headers.stream_id());
 
         let mut stream = Stream::new(
             stream_id,
@@ -339,13 +346,9 @@ where
             me.actions.recv.init_window_sz(),
         );
 
-        if *request.method() == Method::HEAD {
+        if is_head {
             stream.content_length = ContentLength::Head;
         }
-
-        // Convert the message
-        let headers =
-            client::Peer::convert_send_message(stream_id, request, protocol, end_of_stream)?;
 
         let mut stream = me.store.insert(stream.id, stream);
 

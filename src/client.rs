@@ -1643,6 +1643,7 @@ impl Peer {
             //    this is an error.
             //
             // 2) Authority is set, then the HTTP method *must* be CONNECT.
+            //    Non-CONNECT requests require `:scheme` (RFC 9113 §8.3.1).
             //
             // It is not possible to have a scheme but not an authority set (the
             // `http` crate does not allow it).
@@ -1658,7 +1659,9 @@ impl Peer {
                     pseudo.set_scheme(uri::Scheme::HTTP);
                 }
             } else if !is_connect {
-                // TODO: Error
+                // Authority without scheme (e.g. `Uri` of `example.com:8080`)
+                // is not valid for GET/OPTIONS/… on HTTP/2.
+                return Err(UserError::MissingUriSchemeAndAuthority.into());
             }
         }
 

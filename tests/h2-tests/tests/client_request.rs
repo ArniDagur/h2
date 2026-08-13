@@ -586,6 +586,50 @@ async fn http_2_request_without_scheme_or_authority() {
 }
 
 #[tokio::test]
+async fn request_with_authority_without_scheme_is_user_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+    };
+
+    let h2 = async move {
+        let (mut client, h2) = client::handshake(io).await.expect("handshake");
+
+        // Authority present but no scheme (e.g. `example.com:8080`) is illegal
+        // for non-CONNECT requests: HTTP/2 requires `:scheme` (RFC 9113 §8.3.1).
+        // Pre-fix this silently omitted `:scheme` on the wire.
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("example.com:8080")
+            .body(())
+            .unwrap();
+
+        client
+            .send_request(request, true)
+            .expect_err("authority without scheme must be UserError");
+
+        // OPTIONS asterisk-form with host authority is the same class of bug.
+        let request = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("example.com:8080")
+            .body(())
+            .unwrap();
+
+        client
+            .send_request(request, true)
+            .expect_err("OPTIONS authority without scheme must be UserError");
+
+        let _: () = h2.await.expect("h2");
+        drop(client);
+    };
+
+    join(srv, h2).await;
+}
+
+#[tokio::test]
 async fn http_2_connect_request_omit_scheme_and_path_fields() {
     h2_support::trace_init!();
     let (io, mut srv) = mock::new();
