@@ -1625,9 +1625,12 @@ impl Peer {
             }
         }
 
-        // Pushed requests are never CONNECT; `:scheme` is required (RFC 9113 §8.3.1).
-        if pseudo.scheme.is_none() {
-            return Err(UserError::MissingUriSchemeAndAuthority);
+        // Pushed requests are never CONNECT; `:scheme` is required and must be
+        // non-empty (RFC 9113 §8.3.1 / RFC 3986 §3.1).
+        match pseudo.scheme.as_ref() {
+            None => return Err(UserError::MissingUriSchemeAndAuthority),
+            Some(s) if s.is_empty() => return Err(UserError::MissingUriSchemeAndAuthority),
+            _ => {}
         }
 
         // Connection-specific fields must be rejected here so `push_request`
@@ -1742,6 +1745,11 @@ impl proto::Peer for Peer {
         if let Some(scheme) = pseudo.scheme {
             if is_connect && !has_protocol {
                 malformed!("malformed headers: :scheme in CONNECT");
+            }
+            // RFC 3986 §3.1: scheme is ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+            // Empty is not a valid scheme; http::uri::Scheme still parses "" as Ok.
+            if scheme.is_empty() {
+                malformed!("malformed headers: empty scheme");
             }
             let maybe_scheme = scheme.parse();
             let scheme = maybe_scheme.or_else(|why| {

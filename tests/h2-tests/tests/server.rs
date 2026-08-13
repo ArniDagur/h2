@@ -2453,6 +2453,61 @@ async fn reject_request_missing_path_pseudo() {
     join(client, srv).await;
 }
 
+/// RFC 3986 §3.1 / RFC 9113 §8.3.1: `:scheme` must be a non-empty scheme token.
+/// `http::uri::Scheme` accepts `""`, so empty was previously treated as present.
+#[tokio::test]
+async fn reject_request_empty_scheme_pseudo() {
+    h2_support::trace_init!();
+
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("").into(),
+                        authority: util::byte_str("example.com").into(),
+                        path: util::byte_str("/").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        // Follow-up valid request still works on the connection.
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(3).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        // Empty scheme must not be delivered as a request.
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().path(), "/");
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9110 §9.3.6: traditional CONNECT must not include Content-Length.
 #[tokio::test]
 async fn reject_connect_with_content_length() {

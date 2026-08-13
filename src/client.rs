@@ -1652,12 +1652,18 @@ impl Peer {
             }
         }
 
-        if !is_connect && pseudo.scheme.is_none() {
-            // Non-CONNECT requests need `:scheme` (RFC 9113 §8.3.1).
-            //
+        // Non-CONNECT requests need a non-empty `:scheme` (RFC 9113 §8.3.1 /
+        // RFC 3986 §3.1). Empty string is not a valid scheme; http::Uri can
+        // still carry scheme="" (e.g. "://host/") and would otherwise go on
+        // the wire.
+        let scheme_missing_or_empty = match pseudo.scheme.as_ref() {
+            None => true,
+            Some(s) => s.is_empty(),
+        };
+        if !is_connect && scheme_missing_or_empty {
             // HTTP/2-version requests: fail if the URI (and Host promotion)
-            // did not supply a scheme — covers relative paths and authority-
-            // only forms like `example.com:8080`.
+            // did not supply a real scheme — covers relative paths, authority-
+            // only forms like `example.com:8080`, and empty scheme.
             //
             // HTTP/1.x-version requests: default to `http` so intermediaries
             // can forward relative URIs or Host-only forms over HTTP/2.

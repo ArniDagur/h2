@@ -332,6 +332,12 @@
 - **Fix branch:** `fix/requested-capacity-floor-after-send`
 - **Change:** After decreasing requested/buffered on write, floor `requested_send_capacity` at `min(buffered_send_data, MAX_WINDOW_SIZE)`.
 
+### F59 — Empty `:scheme` accepted
+- **Severity:** Medium (protocol): RFC 3986 §3.1 requires a non-empty scheme token; RFC 9113 §8.3.1 requires `:scheme` on non-CONNECT requests. `http::uri::Scheme` parses `""` as Ok, so a present-but-empty `:scheme` passed the "missing scheme" checks. Inbound requests with empty scheme were accepted; outbound `Uri` values like `://example.com/` would emit empty `:scheme` on the wire.
+- **Evidence:** Peer HEADERS with empty scheme → post-fix `RST_STREAM(PROTOCOL_ERROR)`; connection still accepts a clean follow-up. `send_request` with `://example.com/` → `MissingUriSchemeAndAuthority`. Regressions: `reject_request_empty_scheme_pseudo`, `request_with_empty_scheme_is_user_error`.
+- **Fix branch:** `fix/reject-empty-scheme`
+- **Change:** Server `convert_poll_message` rejects empty scheme; client `convert_send_message` and push convert treat empty like missing.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

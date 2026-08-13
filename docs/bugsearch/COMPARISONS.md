@@ -71,6 +71,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F37):** explicit PROTOCOL_ERROR in server `convert_poll_message` (also covers PUSH_PROMISE request conversion).
 - **Verdict:** F37 is an h2 protocol correctness fix (malformed request acceptance).
 
+### Empty `:scheme`
+- **RFC 3986 §3.1:** scheme is a non-empty token; empty is invalid.
+- **RFC 9113 §8.3.1:** non-CONNECT requests MUST include `:scheme`.
+- **Rust h2 (pre-F59):** missing scheme rejected (F21/F37); present-but-empty accepted because `http::uri::Scheme` parses `""`.
+- **Rust h2 (F59):** empty rejected on recv and generate (treated like missing on generate).
+- **Verdict:** F59 closes the empty-string hole left by the missing-only checks.
+
 ### Response with request pseudo-headers
 - **RFC 9113 §8.3.2:** responses MUST NOT include `:method`/`:scheme`/`:authority`/`:path`/`:protocol`.
 - **Rust h2 (pre-F38):** only enforced missing `:status` (F36); request pseudos ignored if status present.
