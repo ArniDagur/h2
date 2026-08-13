@@ -1682,6 +1682,7 @@ fn drop_send_ref(inner: &Mutex<Inner>, key: store::Key) {
         // maybe_cancel would wait until those drop and hang the peer (F81).
         if !stream.state.is_send_closed() {
             let pending_open = stream.is_pending_open;
+            let advertised_push = pending_open && inner.counts.peer().is_server();
             inner.counts.transition(stream, |counts, stream| {
                 inner.actions.send.schedule_implicit_reset(
                     stream,
@@ -1689,7 +1690,7 @@ fn drop_send_ref(inner: &Mutex<Inner>, key: store::Key) {
                     counts,
                     &mut inner.actions.task,
                 );
-                if !pending_open {
+                if !pending_open || advertised_push {
                     inner.actions.recv.enqueue_reset_expiration(stream, counts);
                 }
             });
@@ -1979,13 +1980,15 @@ fn maybe_cancel(stream: &mut store::Ptr, actions: &mut Actions, counts: &mut Cou
             Reason::CANCEL
         };
 
-        // Never-sent pending_open streams are aborted locally (no wire frames);
-        // skip reset-expiration bookkeeping for those.
+        // Never-sent pending_open (client request HEADERS not on the wire)
+        // is aborted locally. Server pending_open is an advertised push;
+        // abort emits RST (F93) and needs the reset-expiration window.
         let pending_open = stream.is_pending_open;
+        let advertised_push = pending_open && counts.peer().is_server();
         actions
             .send
             .schedule_implicit_reset(stream, reason, counts, &mut actions.task);
-        if !pending_open {
+        if !pending_open || advertised_push {
             actions.recv.enqueue_reset_expiration(stream, counts);
         }
     }

@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F93 — Drop/reset of reserved `pending_open` push never sends RST
+- **Severity:** Medium (protocol / cancellation): F92 sibling. After PP is written, a push child with no send slot is `queue_open`'d. Drop (`schedule_implicit_reset`) or explicit `send_reset` with no slot hit `abort_closed_pending_open`, which treated every `pending_open` as never-advertised idle and discarded locally. Peer kept a reserved stream with no HEADERS and no RST.
+- **Evidence:** max=1; PP(2)+HEADERS(2) occupy the slot; PP(4) on the wire; drop the stream-4 send handle. Pre-fix: 2s timeout, no RST. Post-fix: `RST_STREAM(4) CANCEL`. Regression `drop_pending_open_push_sends_reset`. Client-request `pending_open` still aborts locally (RST on idle is PROTOCOL_ERROR). F18 (cancel while still `pending_push`) unchanged.
+- **Fix branch:** `fix/reserved-pending-open-cancel-sends-rst`
+- **Change:** Server `pending_open` abort emits RST without a concurrency slot (reserved, not idle). Reset-expiration booked for those advertised cancels.
+
 ### F92 — WU/RST on reserved `pending_open` push is treated as idle GOAWAY
 - **Severity:** Medium (protocol / connection-kill): After PP is written, a push child with no send slot is `queue_open`'d (`is_pending_open`). The peer sees **reserved**, not idle. RFC 9113 §5.1 reserved (local) allows RST_STREAM, WINDOW_UPDATE, and PRIORITY. `recv_window_update` / `recv_reset` treated every `pending_open` as idle → library GOAWAY PROTOCOL_ERROR. A client that ACKs the reserved id with WU, or refuses the push with RST, killed the connection. Client-request `pending_open` (HEADERS never sent) is still idle and still GOAWAYs.
 - **Evidence:** max=1; PP(2)+HEADERS(2) occupy the slot; PP(4) queued open; client `WINDOW_UPDATE(4)` or `RST_STREAM(4)`. Pre-fix: GOAWAY PROTOCOL_ERROR (pong timeout). Post-fix: PING/PONG succeeds. Regressions `window_update_on_pending_open_push_is_not_goaway`, `reset_on_pending_open_push_is_not_goaway`. DATA/HEADERS on that id still connection PROTOCOL_ERROR (not allowed on reserved local).

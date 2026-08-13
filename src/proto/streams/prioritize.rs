@@ -1074,6 +1074,9 @@ impl Prioritize {
     ///   SETTINGS or post-queue max decrease). Healthy streams are reset with
     ///   `REFUSED_STREAM` so waiters fail instead of hanging forever.
     ///
+    /// Server `pending_open` is different: PUSH_PROMISE already advertised the
+    /// id. Cancel/reset/max=0 emit RST without a concurrency slot (F93).
+    ///
     /// Explicit reset that still has HEADERS+RST queued is left alone when a
     /// slot may still open later (avoids RST on idle), unless max is 0.
     ///
@@ -1110,6 +1113,34 @@ impl Prioritize {
                 stream.state,
                 max_zero
             );
+
+            // Server pending_open is a push whose PUSH_PROMISE already went
+            // out (queue_open after PP pop). The peer sees reserved, not idle;
+            // RFC §5.1 allows RST without a MAX_CONCURRENT_STREAMS slot.
+            // Local-only abort would leak a reserved stream at the peer (F93).
+            if counts.peer().is_server() {
+                let reason = stream
+                    .state
+                    .reset_reason()
+                    .unwrap_or(Reason::REFUSED_STREAM);
+                self.clear_queue(buffer, &mut stream, counts, &mut None);
+                self.reclaim_all_capacity(&mut stream, counts, &mut None);
+                if stream.state.get_scheduled_reset().is_some() {
+                    self.pending_send.push(&mut stream);
+                } else {
+                    if !stream.state.is_reset() {
+                        stream.state.set_scheduled_reset(reason);
+                    }
+                    if stream.state.get_scheduled_reset().is_some() {
+                        self.pending_send.push(&mut stream);
+                    } else {
+                        let frame = frame::Reset::new(stream.id, reason);
+                        self.queue_frame(frame.into(), buffer, &mut stream, &mut None);
+                    }
+                }
+                aborted = true;
+                continue;
+            }
 
             // Never opened on the wire: discard any leftover frames and release.
             self.clear_queue(buffer, &mut stream, counts, &mut None);

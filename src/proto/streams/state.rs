@@ -389,6 +389,16 @@ impl State {
         }
     }
 
+    /// Reason for a scheduled or already-applied reset, if any.
+    pub fn reset_reason(&self) -> Option<Reason> {
+        match self.inner {
+            Closed(Cause::ScheduledLibraryReset(reason)) => Some(reason),
+            Closed(Cause::Error(Error::Reset(_, reason, _)))
+            | Closed(Cause::ErrorAfterEndStream(Error::Reset(_, reason, _))) => Some(reason),
+            _ => None,
+        }
+    }
+
     pub fn is_send_streaming(&self) -> bool {
         matches!(
             self.inner,
