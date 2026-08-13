@@ -45,7 +45,12 @@
 - **Evidence:** After remote max=0, `send_request` + drop handles; connection hung / stream never freed. Post-fix: stream aborted locally (no wire frames), connection closes cleanly.
 - **Fix branch:** `fix/abort-cancelled-pending-open-at-max-zero`
 - **Change:** `buffer_pending` aborts head of `pending_open` when `is_scheduled_reset()` (clear queue, reclaim, free) without needing a concurrency slot; wake connection from `schedule_implicit_reset` for pending_open; skip reset-expiration for never-sent streams.
-- **Note:** Explicit `send_reset` still queues HEADERS+RST for when a slot opens (PROTOCOL_ERROR if RST alone on idle). If max stays 0 forever, explicit reset can still stall (rarer than drop).
+
+### F12 — Explicit `send_reset` on `pending_open` stuck when no concurrency slot
+- **Severity:** Medium (resource leak / hang): F11 residual. `send_reset` always kept HEADERS+RST for pending_open so RST is not sent on idle; with max=0 the slot never arrives.
+- **Evidence:** After remote max=0, `send_request` + `send_reset(CANCEL)`; connection hung. Post-fix: local discard, connection closes; with capacity available, open-then-RST still works (`reset_before_headers_reaches_peer_without_headers`).
+- **Fix branch:** `fix/send-reset-pending-open-at-max-zero`
+- **Change:** On `send_reset`, if `pending_open && !can_inc_num_send_streams()`, clear queue and wake; expand abort to `is_scheduled_reset || (is_reset && pending_send.is_empty())`.
 
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
