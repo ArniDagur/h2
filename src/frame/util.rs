@@ -42,6 +42,14 @@ pub(crate) fn is_valid_path(path: &str, is_options: bool) -> bool {
     path.as_bytes()[0] == b'/'
 }
 
+/// RFC 9110 §4.3.1 / RFC 3986 §3.2.2: host identifier must not be empty.
+///
+/// `http::uri::Authority` accepts `":80"` (host `""`) and empty IP-literal
+/// `"[]"` / `"[]:80"` (host `"[]"`). Both are invalid identifiers.
+pub(crate) fn is_empty_or_empty_ip_literal_host(host: &str) -> bool {
+    host.is_empty() || host == "[]"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +92,15 @@ mod tests {
         assert!(!is_valid_path("?q=1", false));
         assert!(!is_valid_path("?", false));
         assert!(!is_valid_path("foo", false));
+    }
+
+    #[test]
+    fn empty_or_empty_ip_literal_host() {
+        assert!(is_empty_or_empty_ip_literal_host(""));
+        assert!(is_empty_or_empty_ip_literal_host("[]"));
+        assert!(!is_empty_or_empty_ip_literal_host("[::]"));
+        assert!(!is_empty_or_empty_ip_literal_host("[::1]"));
+        assert!(!is_empty_or_empty_ip_literal_host("example.com"));
     }
 }
 

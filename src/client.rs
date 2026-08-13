@@ -1661,13 +1661,14 @@ impl Peer {
 
         // RFC 9113 §8.3.1: :authority MUST NOT include userinfo (user:pass@host).
         // Pseudo::request copies http::Uri authority verbatim, which may contain it.
-        // RFC 9110 §4.3.1: empty host identifier is not allowed (":" / ":80").
+        // RFC 9110 §4.3.1 / RFC 3986 §3.2.2: empty host (":" / ":80") or empty
+        // IP-literal ("[]" / "[]:80") is not allowed.
         if let Some(ref authority) = pseudo.authority {
             if authority.as_str().as_bytes().contains(&b'@') {
                 return Err(UserError::MalformedHeaders.into());
             }
             if let Ok(auth) = authority.as_str().parse::<uri::Authority>() {
-                if auth.host().is_empty() {
+                if frame::is_empty_or_empty_ip_literal_host(auth.host()) {
                     return Err(UserError::MalformedHeaders.into());
                 }
             }

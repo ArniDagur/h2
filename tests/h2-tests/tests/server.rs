@@ -1864,6 +1864,74 @@ async fn reject_request_empty_host_in_authority() {
     join(client, srv).await;
 }
 
+/// RFC 3986 §3.2.2: empty IP-literal `[]` is not a valid host. http::Authority
+/// accepts it with host `"[]"` (F66 residual).
+#[tokio::test]
+async fn reject_request_empty_ipv6_literal_authority() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("https").into(),
+                        authority: util::byte_str("[]").into(),
+                        path: util::byte_str("/").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        // Host-only path with empty IP-literal.
+        client
+            .send_frame(
+                frames::headers(3)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("https").into(),
+                        path: util::byte_str("/").into(),
+                        ..Default::default()
+                    })
+                    .field("host", "[]:443")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(3).protocol_error()).await;
+
+        // Valid IPv6 unspecified still accepted.
+        client
+            .send_frame(
+                frames::headers(5)
+                    .request("GET", "https://[::1]/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(5).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().host().unwrap(), "[::1]");
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9113 §8.3.1 / nghttp2: :path for http(s) must be path-absolute ("/"…)
 /// or OPTIONS "*". PathAndQuery accepts query-only "?q=1"; that is not valid
 /// as :path. Pre-fix accepted it.

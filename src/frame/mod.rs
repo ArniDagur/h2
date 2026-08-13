@@ -49,7 +49,8 @@ mod util;
 mod window_update;
 
 pub(crate) use self::util::{
-    header_value_has_leading_trailing_ws, is_valid_path, is_valid_scheme,
+    header_value_has_leading_trailing_ws, is_empty_or_empty_ip_literal_host, is_valid_path,
+    is_valid_scheme,
 };
 
 pub use self::data::Data;

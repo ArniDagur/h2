@@ -1624,13 +1624,13 @@ impl Peer {
         }
 
         // RFC 9113 §8.3.1: :authority MUST NOT include userinfo (user:pass@host).
-        // RFC 9110 §4.3.1: empty host identifier is not allowed.
+        // RFC 9110 §4.3.1 / RFC 3986 §3.2.2: empty host or empty IP-literal "[]".
         if let Some(ref authority) = pseudo.authority {
             if authority.as_str().as_bytes().contains(&b'@') {
                 return Err(UserError::MalformedHeaders);
             }
             if let Ok(auth) = authority.as_str().parse::<http::uri::Authority>() {
-                if auth.host().is_empty() {
+                if frame::is_empty_or_empty_ip_literal_host(auth.host()) {
                     return Err(UserError::MalformedHeaders);
                 }
             }
@@ -1765,9 +1765,10 @@ impl proto::Peer for Peer {
                     why,
                 )
             })?;
-            // RFC 9110 §4.3.1: empty host identifier is not allowed.
-            // http::uri::Authority accepts ":" and ":80" with host "".
-            if auth.host().is_empty() {
+            // RFC 9110 §4.3.1 / RFC 3986 §3.2.2: empty host or empty IP-literal
+            // "[]" is not allowed. http::Authority accepts ":" / ":80" (host "")
+            // and "[]" / "[]:80" (host "[]").
+            if frame::is_empty_or_empty_ip_literal_host(auth.host()) {
                 malformed!(
                     "malformed headers: empty host in :authority ({:?})",
                     authority,
@@ -1795,7 +1796,7 @@ impl proto::Peer for Peer {
                     why,
                 )
             })?;
-            if auth.host().is_empty() {
+            if frame::is_empty_or_empty_ip_literal_host(auth.host()) {
                 malformed!("malformed headers: empty host in Host ({:?})", host);
             }
             parts.authority = Some(auth);
