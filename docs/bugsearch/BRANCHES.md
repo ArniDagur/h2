@@ -2,15 +2,19 @@
 
 | Branch | Purpose |
 |--------|---------|
-| `master` | Clean upstream; do not pile experimental junk here. |
-| `experimental/bugsearch` | Long-lived: all bugsearch fixes + notes/docs. |
-| `fix/scheduled-reset-error-kind` | PR candidate: ScheduledLibraryReset → stream reset error (not GOAWAY). |
+| `master` | Clean upstream; no experimental junk. |
+| `experimental/bugsearch` | Long-lived: all bugsearch fixes + docs. |
+| `fix/scheduled-reset-error-kind` | F1: ScheduledLibraryReset → stream reset error. |
+| `fix/pending-capacity-requeue-on-zero` | F2: re-queue to pending_capacity on capacity 0. |
 
 ## Branch contents
 
 ### experimental/bugsearch
-- docs under `docs/bugsearch/`
-- F1 fix (`ensure_recv_open` error kind)
+- `docs/bugsearch/*`
+- F1 + F2 fixes
 
 ### fix/scheduled-reset-error-kind
-- Same F1 code fix (for eventual PR); keep free of unrelated docs if upstream prefers minimal PR (docs can stay experimental-only).
+- F1 only (may share docs commit history with experimental; squash/cherry-pick for PR)
+
+### fix/pending-capacity-requeue-on-zero
+- F2: `prioritize.rs` requeue + `flow_control.rs` regression test
