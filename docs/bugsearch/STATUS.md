@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F84)
+**Branch tip:** `experimental/bugsearch` (F85)
 
 ## Current focus
-F84 — malformed header in a CONTINUATION-spanning block.
+F85 — malformed PUSH_PROMISE HPACK RSTs the parent.
 
 ## Last actions
-1. `HeaderBlock::load` dropped stream-level `malformed` on `NeedMore`; `framed_read` RST'd before END_HEADERS.
-2. Persist `is_malformed`; keep decoding CONTINUATION until END_HEADERS, then RST.
-3. Unit + regression: `malformed_connection_header_persists_across_need_more`, `recv_connection_header_spanning_continuation_is_stream_error`.
+1. Codec `MalformedMessage` RST used the PP parent stream id.
+2. RST the promised id (0 → GOAWAY); parent request continues.
+3. Regressions: `recv_push_promise_connection_header_resets_promised_not_parent`, `recv_push_promise_connection_header_spanning_continuation`.
 
 ## Next recommended step
-1. Package PRs for F3–F84.
+1. Package PRs for F3–F85.
 2. Residual #848 API ready-at-max-open.
 3. Optional test hygiene: S4 stale tests + F29 drain loop.
 

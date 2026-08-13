@@ -493,6 +493,12 @@
 - **Fix branch:** `fix/malformed-headers-continuation-hpack`
 - **Change:** Persist `HeaderBlock::is_malformed` across chunks (including `NeedMore`). `framed_read` keeps feeding CONTINUATION until END_HEADERS, then RST.
 
+### F85 — Malformed PUSH_PROMISE HPACK RSTs the parent stream
+- **Severity:** Medium (cancel / hang): RFC 9113 §8.4 requires a malformed PUSH_PROMISE request (e.g. `Connection`, illegal `TE`, leading/trailing WS) to be a stream PROTOCOL_ERROR on the **promised** stream. Codec `MalformedMessage` used `head.stream_id()` (the parent). `send_reset` then cancelled the client request; the promised id was never opened so the peer kept a reserved stream with no RST.
+- **Evidence:** PP(1, 2) with `Connection: close`: pre-fix `RST_STREAM(1)`; post-fix `RST_STREAM(2)`, parent 200 still delivered, follow-up request works. Same with a CONTINUATION-spanning pad (F84 path). Regressions: `recv_push_promise_connection_header_resets_promised_not_parent`, `recv_push_promise_connection_header_spanning_continuation`. POST/CL push errors already RST'd the promised id in `recv_push_promise` (they pass HPACK).
+- **Fix branch:** `fix/malformed-push-promise-resets-promised`
+- **Change:** `Headers`/`PushPromise::malformed_reset_id`; codec RST uses promised id for PP (promised 0 → GOAWAY).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

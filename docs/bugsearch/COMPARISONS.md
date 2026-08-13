@@ -273,6 +273,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F83):** enable applied when SETTINGS is written. ACK still sets the flag (idempotent).
 - **Verdict:** F83 is an h2-local race fix, same class as F10/F82.
 
+### Malformed PUSH_PROMISE header block
+- **RFC 9113 §8.4:** a PUSH_PROMISE that is not a complete valid request is a stream PROTOCOL_ERROR on the **promised** stream.
+- **Go:** `processPushPromise` validation uses `streamError(promisedID, PROTOCOL_ERROR)`.
+- **Rust h2 (pre-F85):** HPACK `MalformedMessage` (`Connection`, TE, leading/trailing WS) RST'd `head.stream_id()` (parent). POST/CL push errors already RST'd the promised id after `recv_push_promise`.
+- **Rust h2 (F85):** codec RST uses promised id; promised 0 → GOAWAY.
+- **Verdict:** F85 aligns with RFC/Go (wrong-stream cancel).
+
 ### Malformed header fields spanning CONTINUATION
 - **RFC 9113 §4.3 / §8.2:** a header block is HEADERS plus any CONTINUATION; HPACK is connection state. Stream-level malformed fields (`Connection`, illegal `TE`, leading/trailing SP/HTAB) are stream PROTOCOL_ERROR, but the decoder must finish the block.
 - **Rust h2 (pre-F84):** `malformed` was a local in `HeaderBlock::load` and was discarded on `NeedMore`. A `Connection` field in the first 16KiB followed by a split large field was accepted. If decode finished the first frame, RST dropped `Partial` and the next CONTINUATION was GOAWAY PROTOCOL_ERROR.

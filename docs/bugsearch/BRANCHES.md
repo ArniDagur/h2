@@ -88,6 +88,7 @@
 | `fix/local-header-table-increase-before-ack` | F82 |
 | `fix/local-extended-connect-enable-before-ack` | F83 |
 | `fix/malformed-headers-continuation-hpack` | F84 |
+| `fix/malformed-push-promise-resets-promised` | F85 |
 
 ## experimental contains
-F1–F84, I1–I2, deadlock stress test, docs.
+F1–F85, I1–I2, deadlock stress test, docs.
