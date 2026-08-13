@@ -693,6 +693,169 @@ async fn parent_reset_discards_unsent_push_promise_child() {
     join(client, srv).await;
 }
 
+/// `try_assign` will give connection send capacity to a `pending_push` child.
+/// If the parent is reset before PP is flushed, `clear_queue` discarded the
+/// child without reclaiming that capacity (F90) — later streams could not send.
+#[tokio::test]
+async fn parent_reset_reclaims_unsent_push_child_capacity() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/other")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).cancel()).await;
+        client
+            .recv_frame(frames::headers(3).response(200))
+            .await;
+        let data = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::data(3, &b"ok"[..]).eos()),
+        )
+        .await
+        .expect("stream 3 DATA hung: push-child capacity was not reclaimed");
+        let _ = data;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        let mut push = stream.push_request(pushed_req).unwrap();
+        let mut send = push.send_response(Response::new(()), false).unwrap();
+        send.reserve_capacity(65_535);
+        send.send_data(Bytes::from(vec![0; 65_535]), true)
+            .expect("child send_data");
+        drop(send);
+        stream.send_reset(Reason::CANCEL);
+
+        let (_req3, mut stream3) = srv.next().await.unwrap().unwrap();
+        let mut send3 = stream3.send_response(Response::new(()), false).unwrap();
+        send3.send_data(Bytes::from_static(b"ok"), true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
+/// `try_assign` used to give connection send capacity to a `pending_push`
+/// child. If MAX_CONCURRENT_STREAMS is already full, popping PP then
+/// `queue_open`s that child *with* the window — I1 (pending_open must not
+/// hold capacity) and every open stream starves (F91).
+#[tokio::test]
+async fn pending_push_queued_open_does_not_hoard_send_capacity() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(1))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/a.css"),
+            )
+            .await;
+        client.recv_frame(frames::headers(2).response(200)).await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 4).request("GET", "https://example.com/b.css"),
+            )
+            .await;
+        // After PP(4) the child is pending_open. Stream 2 DATA must still
+        // flush — pre-fix the pending_open child held the connection window
+        // (I1 panic / hang). HEADERS(1) is not flow-controlled and would
+        // arrive *before* DATA(2) on the broken path.
+        let data = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::data(2, &b"ok"[..]).eos()),
+        )
+        .await
+        .expect("stream 2 DATA hung: pending_open push child hoarded send capacity");
+        let _ = data;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        // Occupy the single server-initiated send slot.
+        let mut push1 = stream
+            .push_request(
+                http::Request::builder()
+                    .method("GET")
+                    .uri("https://example.com/a.css")
+                    .body(())
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut send2 = push1
+            .send_response(Response::new(()), false)
+            .unwrap();
+
+        // Second push: large body. Pre-fix, try_assign hoards the connection
+        // window on this still-pending_push child; PP pop then queue_open
+        // leaves it there.
+        let mut push2 = stream
+            .push_request(
+                http::Request::builder()
+                    .method("GET")
+                    .uri("https://example.com/b.css")
+                    .body(())
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut send4 = push2
+            .send_response(Response::new(()), false)
+            .unwrap();
+        send4.reserve_capacity(65_535);
+        send4
+            .send_data(Bytes::from(vec![0; 65_535]), true)
+            .expect("child 4 send_data");
+        drop(send4);
+
+        stream
+            .send_response(Response::new(()), true)
+            .unwrap();
+
+        send2
+            .send_data(Bytes::from_static(b"ok"), true)
+            .unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Dropping a promised push stream before `send_response` must still RST after
 /// PUSH_PROMISE is on the wire. While `is_pending_push`, `schedule_send` is a
 /// no-op, so cancel had to be deferred until PUSH_PROMISE is flushed.

@@ -1850,6 +1850,97 @@ async fn drop_pending_open() {
     join(srv, client).await;
 }
 
+/// Remote GOAWAY with last_stream_id >= a `pending_open` stream must wake
+/// `SendRequest::poll_ready`. Those streams are *not* `handle_error`'d
+/// (`id > last` only), but `conn_error` is set — without `notify_open`,
+/// `ready().await` hangs until an unrelated concurrency slot opens (F89).
+#[tokio::test]
+async fn goaway_wakes_poll_ready_when_pending_open_still_allowed() {
+    use std::time::Duration;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let (parked_tx, parked_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(1))
+            .await;
+        assert_default_settings!(settings);
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        // Wait until poll_ready has parked on stream 3's open_task.
+        parked_rx.await.expect("parked");
+        // last=3: stream 3 is still allowed, so recv_go_away does not
+        // handle_error / notify_open it. Stream 1 stays open (no slot).
+        srv.send_frame(frames::go_away(3)).await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, conn) = client::handshake(io).await.expect("handshake");
+        let conn = tokio::spawn(async move { conn.await });
+
+        // Apply peer SETTINGS before queueing so stream 3 is truly pending_open.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max_concurrent_streams=1");
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp1, _send1) = client.send_request(request, false).unwrap();
+        poll_fn(|cx| client.poll_ready(cx)).await.unwrap();
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp2, _send2) = client.send_request(request, true).unwrap();
+
+        let mut parked_tx = Some(parked_tx);
+        let until_ready = async move {
+            tokio::time::timeout(
+                Duration::from_secs(2),
+                poll_fn(move |cx| {
+                    let p = client.poll_ready(cx);
+                    if p.is_pending() {
+                        if let Some(tx) = parked_tx.take() {
+                            let _ = tx.send(());
+                        }
+                    }
+                    p
+                }),
+            )
+            .await
+            .expect("poll_ready hung after GOAWAY (pending_open id still allowed)")
+            .expect_err("poll_ready should surface GOAWAY");
+        };
+
+        let mut unordered =
+            futures::stream::FuturesUnordered::<Pin<Box<dyn Future<Output = ()>>>>::new();
+        unordered.push(Box::pin(until_ready));
+        unordered.push(Box::pin(async move {
+            let _ = resp1.await;
+        }));
+        unordered.push(Box::pin(async move {
+            let _ = resp2.await;
+        }));
+
+        while unordered.next().await.is_some() {}
+        let _ = conn.await;
+    };
+
+    join(srv, h2).await;
+}
+
 /// Flooding `send_request` before streams leave `pending_open` must engage
 /// per-handle backpressure once open+pending_open reaches max concurrent.
 #[tokio::test]

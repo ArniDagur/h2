@@ -459,8 +459,11 @@ impl Prioritize {
     /// Request capacity to send data
     fn try_assign_capacity(&mut self, stream: &mut store::Ptr, task: &mut Option<Waker>) {
         // Streams over the max concurrent count should not have capacity assign to avoid starving the connection
-        // capacity for open streams
-        if stream.is_pending_open {
+        // capacity for open streams. pending_push is the same: PUSH_PROMISE is
+        // not flow-controlled, but the child may then be `queue_open`'d if the
+        // send slot is already taken (F91). Assigned capacity on pending_open
+        // starves every stream that can actually send.
+        if stream.is_pending_open || stream.is_pending_push {
             return;
         }
 
@@ -739,6 +742,7 @@ impl Prioritize {
         buffer: &mut Buffer<Frame<B>>,
         stream: &mut store::Ptr,
         counts: &mut Counts,
+        task: &mut Option<Waker>,
     ) {
         let span = tracing::trace_span!("clear_queue", ?stream.id);
         let _e = span.enter();
@@ -761,6 +765,10 @@ impl Prioritize {
                     while let Some(_) = pushed.pending_send.pop_front(buffer) {}
                     pushed.buffered_send_data = 0;
                     pushed.requested_send_capacity = 0;
+                    // try_assign does not skip pending_push, so the child may
+                    // already hold connection send capacity. Zeroing buffered
+                    // without reclaiming starves every other stream (F90).
+                    self.reclaim_all_capacity(&mut pushed, counts, task);
                     if !pushed.state.is_closed() {
                         pushed.set_reset(Reason::CANCEL, Initiator::Library);
                     } else if let Some(reason) = pushed.state.get_scheduled_reset() {
@@ -842,7 +850,7 @@ impl Prioritize {
                                 // time, maybe_cancel uses CANCEL instead — see F30.)
                                 if reason != Reason::NO_ERROR {
                                     stream.pending_send.push_front(buffer, frame.into());
-                                    self.clear_queue(buffer, &mut stream, counts);
+                                    self.clear_queue(buffer, &mut stream, counts, &mut None);
                                     self.reclaim_all_capacity(&mut stream, counts, &mut None);
                                     self.pending_send.push(&mut stream);
                                     continue;
@@ -965,8 +973,17 @@ impl Prioritize {
                                 // pending_open if possible
                                 if counts.can_inc_num_send_streams() {
                                     counts.inc_num_send_streams(&mut pushed);
+                                    // Capacity was not assigned while pending_push
+                                    // (try_assign skips it). Assign now that the
+                                    // child can send, or DATA sits at capacity 0
+                                    // with the connection window unused.
+                                    self.try_assign_capacity(&mut pushed, &mut None);
                                     self.pending_send.push(&mut pushed);
                                 } else {
+                                    // Defense: never take assigned capacity into
+                                    // pending_open (I1). No-op if try_assign
+                                    // already skipped pending_push.
+                                    self.reclaim_all_capacity(&mut pushed, counts, &mut None);
                                     self.queue_open(&mut pushed, counts);
                                 }
                             }
@@ -1095,7 +1112,7 @@ impl Prioritize {
             );
 
             // Never opened on the wire: discard any leftover frames and release.
-            self.clear_queue(buffer, &mut stream, counts);
+            self.clear_queue(buffer, &mut stream, counts, &mut None);
             self.reclaim_all_capacity(&mut stream, counts, &mut None);
             if let Some(reason) = stream.state.get_scheduled_reset() {
                 stream.set_reset(reason, Initiator::Library);

@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F88 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F91 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -87,6 +87,9 @@
 - Uppercase/invalid header name was HPACK GOAWAY → F86.
 - Empty header name was NeedMore/GOAWAY → F87 (F86 residual).
 - `poll_reset` parked through recv EOS (`Closed(EndStream)`) never woken — F88 (F31 residual).
+- Remote GOAWAY + pending_open `id <= last` left `poll_ready` parked — F89.
+- Unsent PP child held conn send capacity; parent `clear_queue` dropped it without reclaim — F90.
+- `try_assign` skipped only `pending_open`, not `pending_push`. A second push with a large body while max concurrent was full was `queue_open`'d still holding the connection window (I1 panic / open-stream DATA hang) — F91.
 - `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
 - F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
@@ -115,10 +118,20 @@
 - `SendRequest::clone` sets `pending: None`. Two clones cannot park on the same `open_task`.
 - `Prioritize` comment says send queues are ID-ordered; `Queue::push` is FIFO. Safe in practice: `send_request` assigns increasing ids under the mutex then `queue_open`; `buffer_pending` opens at most one pending_open per frame and `push_front`s it so that stream's HEADERS are popped next. A later stream cannot emit HEADERS while an earlier id is still idle.
 - Fully encoded small DATA sets `last_data_frame` in `Encoder::buffer`; `reclaim_frame` right after clears `in_flight_data_frame`. Large DATA stays in `encoder.next` until flush (`has_capacity` false). Debug assert `Nothing` before the next DATA holds.
-- `try_assign_capacity` skips only `is_pending_open`, not `is_pending_push`. A pushed child can be assigned the whole connection window before PP is flushed. Self-deadlock with parent DATA does not hold: PP is queued on the parent before the child exists, so it sits *ahead* of any later parent DATA. Earlier unassigned parent DATA implies some other open stream already holds conn capacity and can still send. Same hoard class as F76/F77, not a new hang. Optional hardening: skip assign while `is_pending_push` and `try_assign` when PP is popped (must add that call — today the PP path only `pending_send.push`).
+- `try_assign` skipping only `pending_open` is not a parent/child self-deadlock (PP sits ahead of later parent DATA). It *is* a hang when the child is later `queue_open`'d at max concurrent — F91 (skip assign while pending_push; assign/reclaim on PP pop).
+- SendResponse drop without `send_response` while RecvStream is held: `StreamRef::owns_send` + F81 `drop_send_ref` RSTs when `send_ref_count==0` and send half still open (`AwaitingHeaders` is not send-closed). Not a leak.
+- `poll_complete` flushes without the stream mutex. Concurrent `send_reset` → `clear_queue` → `InFlightData::Drop` cannot leak send window: `pop_frame` charges at most one `max_frame_size` Take; `Encoder` writes that Take fully before `last_data_frame`; reclaim remaining is 0. S3 reconfirmed.
+- `PingPong::poll_pong` after `Connection::poll` Ready: `UserPingsRx` only marks CLOSED on Drop. Standard `spawn(conn.await)` drops Connection and wakes pong. Hanging requires retaining a finished Connection — same class as not driving the connection.
+- Peer SETTINGS `MAX_CONCURRENT_STREAMS=0` abort is in `buffer_pending`, not `poll_ready`. `poll2` applies settings then keeps reading; abort runs when `poll2` is Pending and `poll_complete` runs. Flood delays F15, does not hang forever.
+- Interleaved frames during CONTINUATION: `decode_frame` GOAWAYs if `partial` is set and kind ≠ CONTINUATION (includes Unknown). SETTINGS cannot shrink the HPACK table mid-block.
+- WINDOW_UPDATE on reserved (remote) (promised id before push HEADERS) is accepted. RFC §5.1 reserved (remote) allows only HEADERS/RST/PRIORITY on receive. Same leniency as reserved DATA → STREAM_CLOSED (Go-like); not hang/FC.
+- `schedule_implicit_reset` does not wake `send_task`. `poll_reset`/`poll_capacity` need `&mut SendStream`; implicit RST is F81/`maybe_cancel` after send refs (or all refs) are gone. No parked waiter.
+- PUSH_PROMISE on a parent that is already `Closed(Error::Reset)`: `ensure_recv_open` `?` returns the parent's remote Reset. `handle_poll2_result` does not echo remote RST and does not GOAWAY. PP is dropped, promised id is never `open`ed. Follow-up push HEADERS is a new even id with `Open::Headers` → client `ensure_can_open` GOAWAYs PROTOCOL_ERROR. RFC §6.6 would GOAWAY on the PP itself. Leniency / delayed connection-kill, not hang/FC.
+- `ignore_data` releases connection capacity with `task=None`. It only runs on the read path (`poll2`); `poll_complete` after `poll_next` Pending emits WU. Same “in-poll2 reclaim” class as peer RST vs F76.
+- Remote GOAWAY with `last_stream_id >= pending_open` id left `poll_ready` parked (`open_task` only notified via `handle_error` for `id > last`) — F89.
 
 ## High priority next
-1. Package PRs for F3–F88.
+1. Package PRs for F3–F91.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

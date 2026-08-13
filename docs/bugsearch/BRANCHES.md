@@ -92,6 +92,9 @@
 | `fix/uppercase-header-name-stream-error` | F86 |
 | `fix/empty-header-name-stream-error` | F87 |
 | `fix/poll-reset-wake-on-end-stream` | F88 |
+| `fix/goaway-wakes-pending-open-ready` | F89 |
+| `fix/clear-queue-reclaims-unsent-push-capacity` | F90 |
+| `fix/pending-push-skip-assign-until-open` | F91 |
 
 ## experimental contains
-F1–F88, I1–I2, deadlock stress test, docs.
+F1–F91, I1–I2, deadlock stress test, docs.

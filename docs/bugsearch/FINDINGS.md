@@ -166,6 +166,24 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F91 — `pending_push` child hoards send capacity after `queue_open`
+- **Severity:** Medium (lost flow-control / hang): F90 sibling. `try_assign_capacity` skipped only `pending_open`, so a promised child could take the whole connection window while still `pending_push`. If `MAX_CONCURRENT_STREAMS` was already full, PP pop `queue_open`'d that child **with** the assignment. I1 (`pending_open` must not hold capacity) panics in debug; in release every open stream’s DATA starves until the child is later opened and finishes.
+- **Evidence:** Client `max_concurrent_streams=1`; push stream 2 (occupy slot) + push stream 4 `send_data(65535)` + DATA on stream 2. Pre-fix: I1 panic / stream 2 DATA timeout. Post-fix: `"ok"` arrives. Regression `pending_push_queued_open_does_not_hoard_send_capacity`. Existing `push_request_against_concurrency` (empty DATA) still passes.
+- **Fix branch:** `fix/pending-push-skip-assign-until-open`
+- **Change:** `try_assign` also skips `is_pending_push`; assign when PP is popped and the child is opened; reclaim before `queue_open` (defense).
+
+### F90 — Unsent PUSH_PROMISE child capacity not reclaimed on parent reset
+- **Severity:** Medium (lost flow-control / hang): `try_assign_capacity` does not skip `is_pending_push`, so a promised child can hold connection send capacity before PP is written. Parent `send_reset` / `clear_queue` discarded the never-sent child (F19) by zeroing `buffered_send_data` without `reclaim_all_capacity`. That connection window was gone until process death. A later stream’s DATA parked forever.
+- **Evidence:** Queue PP, `send_data(65535)` on the child, drop child, `send_reset` parent, then respond on stream 3. Pre-fix: stream 3 DATA timed out. Post-fix: `"ok"` arrives. Regression `parent_reset_reclaims_unsent_push_child_capacity`. F19 discard (no PP/RST on id 2) unchanged.
+- **Fix branch:** `fix/clear-queue-reclaims-unsent-push-capacity`
+- **Change:** `clear_queue` takes `task`; after discarding an unsent promised child, `reclaim_all_capacity` (wakes connection when called from user `send_reset`).
+
+### F89 — `poll_ready` hangs after GOAWAY when `pending_open` id is still allowed
+- **Severity:** Medium (hang / missed wakeup): `recv_go_away` sets `conn_error` so the next `poll_pending_open` would return the GOAWAY error, but waiters park on `open_task`. `handle_error` (which `notify_open`s) only runs for local streams with `id > last_stream_id`. A GOAWAY that still allows the queued stream (`id <= last`, including `last=MAX` from server `graceful_shutdown`) never wakes `SendRequest::poll_ready`. The handle stays Pending until an unrelated concurrency slot opens (or forever if the open streams never end).
+- **Evidence:** max=1, stream 1 held open, stream 3 `pending_open`, park `poll_ready`, peer `GOAWAY(3)`. Pre-fix: 2s timeout. Post-fix: Ready `Err` (GOAWAY). Regression `goaway_wakes_poll_ready_when_pending_open_still_allowed`. `id > last` path still wakes via `handle_error` (`drop_pending_open`).
+- **Fix branch:** `fix/goaway-wakes-pending-open-ready`
+- **Change:** After setting `conn_error`, `notify_open` every `pending_open` stream.
+
 ### F88 — `poll_reset` not woken when recv EOS fully closes the stream
 - **Severity:** Medium (hang / missed wakeup): F31 made `Closed(EndStream)` return `Err(InactiveStreamId)` instead of parking forever, but recv EOS only `notify_recv` / `notify_push`. A task already parked on `SendStream::poll_reset` (`send_task`) while send was half-closed was never woken.
 - **Evidence:** Park `poll_reset` after request EOS, then peer response HEADERS+EOS. Pre-fix: 2s timeout (`wakened` never polled again). Post-fix: Ready `Err` (inactive). Same-task F31 test still passes. RST still wakes (`send_stream_poll_reset`).

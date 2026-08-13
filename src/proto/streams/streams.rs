@@ -894,6 +894,17 @@ impl Inner {
 
         actions.conn_error = Some(err);
 
+        // `poll_pending_open` returns this conn_error on the next poll, but
+        // waiters park on `open_task`. handle_error only notifies streams with
+        // id > last_stream_id. A GOAWAY that still allows the queued stream
+        // (id <= last, including last=MAX) would leave `SendRequest::poll_ready`
+        // hung until a concurrency slot happened to open.
+        self.store.for_each(|mut stream| {
+            if stream.is_pending_open {
+                stream.notify_open();
+            }
+        });
+
         Ok(())
     }
 

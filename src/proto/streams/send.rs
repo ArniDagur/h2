@@ -297,7 +297,7 @@ impl Send {
                 tracing::trace!(
                     "send_reset -- pending_open with no concurrency slot; discard locally"
                 );
-                self.prioritize.clear_queue(buffer, stream, counts);
+                self.prioritize.clear_queue(buffer, stream, counts, task);
                 self.prioritize.reclaim_all_capacity(stream, counts, task);
                 // Wake so buffer_pending can abort this stream out of pending_open.
                 if let Some(task) = task.take() {
@@ -312,7 +312,7 @@ impl Send {
             // Note that we don't call `self.recv_err` because we want to enqueue
             // the reset frame before transitioning the stream inside
             // `reclaim_all_capacity`.
-            self.prioritize.clear_queue(buffer, stream, counts);
+            self.prioritize.clear_queue(buffer, stream, counts, task);
         }
 
         let frame = frame::Reset::new(stream.id, reason);
@@ -573,7 +573,7 @@ impl Send {
         counts: &mut Counts,
     ) {
         // Clear all pending outbound frames
-        self.prioritize.clear_queue(buffer, stream, counts);
+        self.prioritize.clear_queue(buffer, stream, counts, &mut None);
         self.prioritize
             .reclaim_all_capacity(stream, counts, &mut None);
     }
