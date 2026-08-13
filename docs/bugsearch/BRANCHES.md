@@ -81,6 +81,7 @@
 | `fix/reject-empty-ipv6-literal-authority` | F75 |
 | `fix/reserve-capacity-reclaim-wakes-send` | F76 |
 | `fix/drop-send-reclaims-reserved-capacity` | F77 |
+| `fix/send-response-holds-send-ref` | F78 |
 
 ## experimental contains
-F1–F77, I1–I2, deadlock stress test, docs.
+F1–F78, I1–I2, deadlock stress test, docs.

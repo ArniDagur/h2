@@ -251,5 +251,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F56):** clamp to `MAX_WINDOW_SIZE` (2^31-1) at API and prioritize.
 - **Verdict:** F56 is h2 API/FC correctness (not a Go mismatch).
 
+### Send handle drop vs reserved capacity
+- **Rust h2 (F77):** last `StreamRef` send-ref drop reclaims unused reservation even if recv handles live.
+- **Rust h2 (pre-F78):** `SendResponse::send_response` cloned `StreamRef` and left `SendResponse` as a send-ref, so dropping `SendStream` did not reclaim.
+- **Rust h2 (F78):** after headers, `SendResponse` releases send ownership; `SendStream` drop reclaims unused reservation.
+- **Verdict:** h2-local assignment model; not a Go/nghttp2 mismatch.
+
 ## Planned comparisons
 - Residual #848 API design.

@@ -446,6 +446,12 @@
 - **Fix branch:** `fix/drop-send-reclaims-reserved-capacity`
 - **Change:** `Stream::send_ref_count` on `StreamRef` clone/drop; last send handle calls `reclaim_reserved_capacity` (keeps capacity for buffered DATA).
 
+### F78 — `SendResponse` after `send_response` pins reserved send capacity
+- **Severity:** Medium (FC / hang): F77 residual. `SendResponse::send_response` clones `StreamRef` for `SendStream` and leaves `SendResponse` as a send handle (`send_ref_count` stays ≥ 1). Dropping only `SendStream` while keeping `SendResponse` (normal `let mut respond` scope) did not reclaim `reserve_capacity`. Unused assignment stayed until `SendResponse` dropped, starving other streams' DATA.
+- **Evidence:** Server holds stream-1 reservation, `send_response` + drop `SendStream` only, stream 3 `send_data`: post-fix DATA is sent. Pre-fix 2s timeout. Regression: `drop_send_stream_reclaims_reserved_capacity_despite_send_response`.
+- **Fix branch:** `fix/send-response-holds-send-ref`
+- **Change:** `StreamRef::owns_send`; after successful `send_response`, clone `SendStream` then `release_send_ownership` so the leftover `SendResponse` does not pin the reservation. Drop still reclaims when the last owning send handle goes away.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
