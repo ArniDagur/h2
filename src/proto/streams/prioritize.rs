@@ -899,9 +899,16 @@ impl Prioritize {
                             let mut pushed =
                                 stream.store_mut().find_mut(&pp.promised_id()).unwrap();
                             pushed.is_pending_push = false;
-                            // Transition stream from pending_push to pending_open
-                            // if possible
-                            if !pushed.pending_send.is_empty() {
+                            // PUSH_PROMISE is now on the wire: the promised stream is
+                            // reserved at the peer. Schedule send if headers were
+                            // queued, or if the child was cancelled while still
+                            // pending_push (schedule_send is a no-op while
+                            // is_pending_push — RST would never leave otherwise).
+                            if pushed.state.is_scheduled_reset() {
+                                self.pending_send.push(&mut pushed);
+                            } else if !pushed.pending_send.is_empty() {
+                                // Transition stream from pending_push to open /
+                                // pending_open if possible
                                 if counts.can_inc_num_send_streams() {
                                     counts.inc_num_send_streams(&mut pushed);
                                     self.pending_send.push(&mut pushed);

@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F16 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F18 fixes; #853 dismiss; I1/I2 conservation.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -16,15 +16,16 @@
 - #882 is_end_stream after reset — dismissed (intentional with #810).
 - GOAWAY vs pending_open post-F16/F17 — error notify + abort path OK.
 - poll_capacity hang when requested > stream window — waits for peer WU by design.
+- Server pending_push cancel without RST after PP → F18.
+- #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F17.
+1. Package PRs for F3–F18.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
 - Upstream notes on findings.
 - Document shared send_task residual if dual waiters via Mutex become a real report.
 - Connection window recovery threshold vs Go/nghttp2 (logged in COMPARISONS).
-- Server pending_accept + remote reset still delivered (#30).
 - Reserved streams unbounded memory (TODO in streams.rs).
 - convert_send_message fail after `Send::open()` burns stream id (gap; HTTP/2 allows skips).

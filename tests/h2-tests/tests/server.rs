@@ -528,6 +528,58 @@ async fn push_request_between_data() {
     join(client, srv).await;
 }
 
+/// Dropping a promised push stream before `send_response` must still RST after
+/// PUSH_PROMISE is on the wire. While `is_pending_push`, `schedule_send` is a
+/// no-op, so cancel had to be deferred until PUSH_PROMISE is flushed.
+#[tokio::test]
+async fn drop_pushed_stream_before_response_sends_reset() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::headers(1).response(200).eos()).await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/style.css"),
+            )
+            .await;
+        // Without the fix, no RST is ever sent for the cancelled reserved stream.
+        client.recv_frame(frames::reset(2).cancel()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        stream.send_response(rsp, true).unwrap();
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        // Create reserved stream then drop without responding.
+        let push = stream.push_request(pushed_req).unwrap();
+        drop(push);
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 #[test]
 #[ignore]
 fn accept_with_pending_connections_after_socket_close() {}

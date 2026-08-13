@@ -82,6 +82,12 @@
 - **Fix branch:** `fix/pending-open-cancel-without-pending-ref`
 - **Change:** `SendRequest.pending` is `Option<StreamId>` (no ref); `poll_pending_open` / Rejected use `find_mut` (absent stream ⇒ ready / not rejected).
 
+### F18 — Cancelled `pending_push` stream never RST after PUSH_PROMISE
+- **Severity:** Medium (protocol / cancellation): Server `push_request` creates a child with `is_pending_push`. Dropping `SendPushedResponse` without `send_response` calls `schedule_implicit_reset`, but `schedule_send` no-ops while `is_pending_push`. After PUSH_PROMISE is written, the pop path only scheduled the child if `pending_send` was non-empty — so a pure cancel left the peer with a reserved stream and no RST.
+- **Evidence:** `drop_pushed_stream_before_response_sends_reset` expects PUSH_PROMISE then `RST_STREAM(CANCEL)` on stream 2.
+- **Fix branch:** `fix/pending-push-cancel-sends-reset`
+- **Change:** wake connection when cancelling `pending_push`; on PUSH_PROMISE pop, queue scheduled-reset children onto `pending_send` for RST emission.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

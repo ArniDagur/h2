@@ -309,7 +309,10 @@ impl Send {
         self.prioritize.reclaim_reserved_capacity(stream, counts);
         // pending_open streams are not send-ready; still wake the connection so
         // `buffer_pending` can abort them (never opened on the wire).
-        if stream.is_pending_open {
+        // pending_push: schedule_send is also a no-op until PUSH_PROMISE is
+        // written; wake so the parent can flush PP, then pop_frame schedules
+        // the child for RST.
+        if stream.is_pending_open || stream.is_pending_push {
             if let Some(task) = task.take() {
                 task.wake();
             }

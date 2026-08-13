@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-Post-F17 hunt: no new conclusive bug this fire.
+F18: cancelled pending_push child never sends RST after PUSH_PROMISE.
 
 ## Last actions
-1. Reviewed cancellation/ref paths after F17, GOAWAY vs `pending_open` (reset + empty queue aborts via F16 scan; `ensure_no_conn_error` unblocks `poll_ready`).
-2. Tracker differential: Go #80035 (SETTINGS window overflow → FLOW_CONTROL_ERROR) — h2 already rejects via `inc_window` + existing overflow tests; not a bug.
-3. #882 residual `is_end_stream()==false` after reset error delivered — intentional with #810 / F4 test asserts `!is_end_stream()` after error; sticky poll fixed by F4 only.
+1. Confirmed **F18**: dropping a server `SendPushedResponse` before `send_response` schedules CANCEL while `is_pending_push`; `schedule_send` is a no-op until PUSH_PROMISE is written, and the PP pop path only scheduled the child if `pending_send` was non-empty — so no RST after PP on the wire.
+2. Fix: wake on pending_push cancel; after writing PUSH_PROMISE, push scheduled-reset children onto `pending_send` for RST.
+3. Regression: `drop_pushed_stream_before_response_sends_reset`.
 
 ## Next recommended step
-1. Package PRs for F3–F17 (highest leverage).
-2. Or residual #848 API design.
-3. Or new hunt: server `pending_accept` + remote reset (#30), reserved-stream concurrency cap TODO.
+1. Package PRs for F3–F18.
+2. Or residual #848 / #30 pending_accept design.
+3. Or reserved-stream concurrency cap TODO.
 
 ## Blockers
 None.

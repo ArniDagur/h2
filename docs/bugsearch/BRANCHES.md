@@ -21,6 +21,7 @@
 | `fix/pending-open-refused-when-max-zero` | F15 |
 | `fix/abort-buried-cancelled-pending-open` | F16 |
 | `fix/pending-open-cancel-without-pending-ref` | F17 |
+| `fix/pending-push-cancel-sends-reset` | F18 |
 
 ## experimental contains
-F1–F17, I1–I2, deadlock stress test, docs.
+F1–F18, I1–I2, deadlock stress test, docs.
