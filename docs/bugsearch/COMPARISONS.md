@@ -24,5 +24,10 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2:** `RecvStream` drop does not RST (may still send on `SendStream`); F14 restores stream+conn FC for ignored DATA. Full ref drop → implicit CANCEL (or server NO_ERROR after complete response).
 - **Planned:** further compare NO_ERROR vs CANCEL timing to Go/nghttp2 if new reports appear.
 
+### Go #80035 — SETTINGS_INITIAL_WINDOW_SIZE overflow on existing streams
+- **Go:** silent leave window as-is was wrong; fix reports connection FLOW_CONTROL_ERROR when increase exceeds 2^31-1.
+- **Rust h2:** `FlowControl::inc_window` rejects overflow / `> MAX_WINDOW_SIZE` with FLOW_CONTROL_ERROR; integration coverage in flow_control tests (overflow after grow to max).
+- **Verdict:** match (not a fix-worthy h2 gap).
+
 ## Planned comparisons
 - (none active beyond residual #848 API design)

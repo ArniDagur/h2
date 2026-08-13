@@ -92,6 +92,8 @@
 ### #878 / #880 — fixed upstream
 ### `dec_send_window` underflow — i32 extremes only
 ### #848 clone ready-at-max-open — design (queue beyond max); F9 only fixes pending_open occupancy hole
+### Go #80035 SETTINGS window overflow — h2 already FLOW_CONTROL_ERROR via `inc_window` (matches Go intent)
+### #882 `is_end_stream` false after reset — intentional (#810); sticky `data()` fixed by F4
 
 ## Suspects
 None active.

@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F17: `SendRequest::pending` OpaqueStreamRef blocked cancel of pending_open.
+Post-F17 hunt: no new conclusive bug this fire.
 
 ## Last actions
-1. Confirmed **F17**: when occupancy was full, `send_request` stored `pending: Some(OpaqueStreamRef)`, keeping `ref_count > 0` after the user dropped `ResponseFuture` + `SendStream`. Implicit CANCEL never ran; HEADERS were still sent when a slot opened.
-2. Fix: store `pending: Option<StreamId>` (no ref); `poll_pending_open` / Rejected look up by id (missing stream ⇒ ready).
-3. Regression: `drop_stream_handles_cancels_despite_sendrequest_pending`.
+1. Reviewed cancellation/ref paths after F17, GOAWAY vs `pending_open` (reset + empty queue aborts via F16 scan; `ensure_no_conn_error` unblocks `poll_ready`).
+2. Tracker differential: Go #80035 (SETTINGS window overflow → FLOW_CONTROL_ERROR) — h2 already rejects via `inc_window` + existing overflow tests; not a bug.
+3. #882 residual `is_end_stream()==false` after reset error delivered — intentional with #810 / F4 test asserts `!is_end_stream()` after error; sticky poll fixed by F4 only.
 
 ## Next recommended step
-1. Package PRs for F3–F17.
+1. Package PRs for F3–F17 (highest leverage).
 2. Or residual #848 API design.
-3. Or connection window recovery threshold vs Go/nghttp2 (COMPARISONS).
+3. Or new hunt: server `pending_accept` + remote reset (#30), reserved-stream concurrency cap TODO.
 
 ## Blockers
 None.

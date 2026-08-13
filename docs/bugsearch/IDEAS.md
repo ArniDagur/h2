@@ -12,6 +12,10 @@
 - Buried cancelled pending_open (head-only abort) → F16.
 - Go #80759 client GOAWAY odd last-stream-id: h2 uses recv `last_processed_id` (even/0 for pure client) — not a match.
 - SendRequest::pending OpaqueStreamRef blocking cancel → F17.
+- Go #80035 window overflow — already covered in h2.
+- #882 is_end_stream after reset — dismissed (intentional with #810).
+- GOAWAY vs pending_open post-F16/F17 — error notify + abort path OK.
+- poll_capacity hang when requested > stream window — waits for peer WU by design.
 
 ## High priority next
 1. Package PRs for F3–F17.
@@ -21,3 +25,6 @@
 - Upstream notes on findings.
 - Document shared send_task residual if dual waiters via Mutex become a real report.
 - Connection window recovery threshold vs Go/nghttp2 (logged in COMPARISONS).
+- Server pending_accept + remote reset still delivered (#30).
+- Reserved streams unbounded memory (TODO in streams.rs).
+- convert_send_message fail after `Send::open()` burns stream id (gap; HTTP/2 allows skips).
