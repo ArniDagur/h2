@@ -1339,25 +1339,19 @@ impl Recv {
         stream: &mut store::Ptr,
         task: &mut Option<Waker>,
     ) {
-        let mut to_release: WindowSize = 0;
-        while let Some(event) = stream.pending_recv.pop_front(&mut self.buffer) {
-            if let Event::Data(data) = &event {
-                to_release = to_release
-                    .saturating_add(data.len() as WindowSize)
-                    .min(stream.in_flight_recv_data);
-            }
-        }
-        // Release flow control capacity. Cases:
-        // * User read data but hasn't released: buf=0, in_flight>0 -> release 0
-        // * User released without reading: buf>0, in_flight=0 -> release 0
-        // * Normal drop without reading: buf=in_flight -> full release
+        while stream.pending_recv.pop_front(&mut self.buffer).is_some() {}
+        // `poll_data` pops DATA from the queue but leaves `in_flight` until
+        // `release_capacity`. RecvStream drop destroys the only FlowControl
+        // handle, so leftover in_flight can never be released by the user.
+        // If SendStream/other refs keep ref_count > 0, release_closed_capacity
+        // also does not run — connection window leaks (F80).
         //
-        // Release both connection and stream windows so stream WINDOW_UPDATE
-        // can restore the peer's stream send window while the stream may still
-        // be half-open for sending.
-        if to_release > 0 {
-            // release_capacity checks in_flight and adjusts both levels.
-            let _ = self.release_capacity(to_release, stream, task);
+        // Drain first, then release whatever in_flight remains (unread +
+        // read-but-unreleased). release_closed_capacity zeros in_flight before
+        // calling us, so this is a no-op on that path.
+        if stream.in_flight_recv_data > 0 {
+            let rest = stream.in_flight_recv_data;
+            let _ = self.release_capacity(rest, stream, task);
         }
     }
 
@@ -1839,6 +1833,38 @@ mod tests {
         recv.clear_recv_buffer(&mut stream, &mut None);
 
         assert!(stream.pending_recv.is_empty());
+        assert_eq!(stream.in_flight_recv_data, 0);
+        assert_eq!(recv.in_flight_data, 0);
+    }
+
+    #[test]
+    fn clear_recv_buffer_releases_in_flight_after_data_taken() {
+        let config = Config {
+            initial_max_send_streams: 0,
+            local_max_buffer_size: 0,
+            local_next_stream_id: 2.into(),
+            local_push_enabled: false,
+            extended_connect_protocol_enabled: false,
+            local_reset_duration: Duration::ZERO,
+            local_reset_max: 0,
+            remote_reset_max: 0,
+            remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            local_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            remote_max_initiated: None,
+            local_max_error_reset_streams: None,
+        };
+        let mut recv = Recv::new(peer::Dyn::Client, &config);
+        let mut store = Store::new();
+        let mut stream = store.insert(
+            StreamId::from(1),
+            Stream::new(StreamId::from(1), 0, DEFAULT_INITIAL_WINDOW_SIZE),
+        );
+        // Simulate poll_data taking the bytes: queue empty, in_flight still charged.
+        stream.in_flight_recv_data = 48_000;
+        recv.in_flight_data = 48_000;
+
+        recv.clear_recv_buffer(&mut stream, &mut None);
+
         assert_eq!(stream.in_flight_recv_data, 0);
         assert_eq!(recv.in_flight_data, 0);
     }

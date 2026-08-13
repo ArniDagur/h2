@@ -3658,6 +3658,100 @@ async fn drop_recv_stream_releases_stream_window_update() {
     join(srv, client).await;
 }
 
+/// `poll_data` takes bytes out of `pending_recv` but leaves `in_flight` until
+/// `release_capacity`. Dropping `RecvStream` without releasing used to skip
+/// those bytes (buffer empty → release 0) while `SendStream` kept `ref_count`
+/// > 0, so `release_closed_capacity` never ran and the connection window leaked.
+#[tokio::test]
+async fn drop_recv_stream_after_read_releases_unreleased_capacity() {
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let (wu_tx, wu_rx) = oneshot::channel();
+
+    const CHUNK: usize = 16_384;
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(frames::data(1, vec![b'a'; CHUNK])).await;
+        srv.send_frame(frames::data(1, vec![b'b'; CHUNK])).await;
+        srv.send_frame(frames::data(1, vec![b'c'; CHUNK])).await;
+
+        let mut got_conn_wu = false;
+        for _ in 0..6 {
+            if got_conn_wu {
+                break;
+            }
+            let frame = tokio::time::timeout(Duration::from_secs(2), srv.next())
+                .await
+                .expect("timeout waiting for WINDOW_UPDATE after read+drop RecvStream")
+                .expect("eof")
+                .expect("frame");
+            match frame {
+                frame::Frame::WindowUpdate(wu) if wu.stream_id() == StreamId::from(0) => {
+                    got_conn_wu = true;
+                    assert!(
+                        wu.size_increment() as usize >= CHUNK * 2,
+                        "conn WU too small: {}",
+                        wu.size_increment()
+                    );
+                }
+                frame::Frame::WindowUpdate(_) => {}
+                other => panic!("unexpected frame while waiting for WU: {:?}", other),
+            }
+        }
+        assert!(
+            got_conn_wu,
+            "missing connection WINDOW_UPDATE after read+drop RecvStream"
+        );
+        let _ = wu_tx.send(());
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        let conn = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        let (resp, send_stream) = client.send_request(request, false).unwrap();
+        let resp = resp.await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let mut body = resp.into_body();
+        let mut got = 0usize;
+        while let Some(chunk) = body.data().await {
+            got += chunk.expect("data").len();
+            if got >= CHUNK * 3 {
+                break;
+            }
+        }
+        assert_eq!(got, CHUNK * 3);
+        // Keep SendStream so ref_count > 0; drop only RecvStream (no release).
+        drop(body);
+
+        wu_rx
+            .await
+            .expect("server did not see connection WINDOW_UPDATE");
+        drop(send_stream);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+
 /// Reclaiming reserved connection capacity onto another stream that already
 /// buffered DATA must wake the connection task. Pre-fix `reserve_capacity`
 /// decrease called `assign_connection_capacity` → `pending_send` with no
