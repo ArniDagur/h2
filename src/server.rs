@@ -1706,6 +1706,10 @@ impl proto::Peer for Peer {
                     why,
                 )
             })?);
+        } else if is_connect {
+            // RFC 9113 §8.5: CONNECT without :authority is malformed.
+            // Same requirement applies to extended CONNECT (RFC 8441).
+            malformed!("malformed headers: missing authority in CONNECT");
         }
 
         // A :scheme is required, except CONNECT.
@@ -1746,8 +1750,13 @@ impl proto::Peer for Peer {
             parts.path_and_query = Some(maybe_path.or_else(|why| {
                 malformed!("malformed headers: malformed path ({:?}): {}", path, why,)
             })?);
-        } else if is_connect && has_protocol {
-            malformed!("malformed headers: missing path in extended CONNECT");
+        } else if !is_connect || has_protocol {
+            // RFC 9113 §8.3.1: non-CONNECT requests MUST include :path.
+            // Extended CONNECT also requires :path (RFC 8441).
+            // Without this check, scheme-only requests (no authority) were
+            // accepted with an empty URI because scheme is dropped when
+            // authority is absent and http::Uri::from_parts succeeds.
+            malformed!("malformed headers: missing path");
         }
 
         b = b.uri(parts);

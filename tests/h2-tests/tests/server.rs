@@ -2016,6 +2016,88 @@ async fn reject_extended_connect_request_without_path() {
     join(client, srv).await;
 }
 
+
+/// RFC 9113 §8.3.1: non-CONNECT requests MUST include :path.
+/// With authority, http::Uri::from_parts fails ("path missing") so RST is sent
+/// via the builder error path. With scheme only (no authority), h2 drops the
+/// scheme and previously accepted a request with empty path.
+#[tokio::test]
+async fn reject_request_missing_path_pseudo() {
+    h2_support::trace_init!();
+
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+
+        // method + scheme, no authority, no :path — the subtle case
+        client
+            .send_frame(frames::headers(1).pseudo(frame::Pseudo {
+                method: Method::GET.into(),
+                scheme: util::byte_str("https").into(),
+                ..Default::default()
+            }).eos())
+            .await;
+
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        // Also with authority (builder-path coverage)
+        client
+            .send_frame(frames::headers(3).pseudo(frame::Pseudo {
+                method: Method::GET.into(),
+                scheme: util::byte_str("https").into(),
+                authority: util::byte_str("example.com").into(),
+                ..Default::default()
+            }).eos())
+            .await;
+
+        client.recv_frame(frames::reset(3).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        // Must not deliver a request without :path
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
+/// RFC 9113 §8.5 / §8.3.1: CONNECT requests MUST include :authority.
+#[tokio::test]
+async fn reject_connect_missing_authority_pseudo() {
+    h2_support::trace_init!();
+
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+
+        client
+            .send_frame(frames::headers(1).pseudo(frame::Pseudo {
+                method: Method::CONNECT.into(),
+                // no authority, scheme, or path (correct for CONNECT except missing authority)
+                ..Default::default()
+            }).eos())
+            .await;
+
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn reject_informational_status_header_in_request() {
     h2_support::trace_init!();
