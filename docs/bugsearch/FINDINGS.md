@@ -206,6 +206,12 @@
 - **Fix branch:** `fix/reject-request-missing-path-authority`
 - **Change:** In `server::Peer::convert_poll_message`, `!is_connect || has_protocol` → require path (same shape as scheme); `is_connect && authority.is_none()` → malformed. Also applies to received PUSH_PROMISE request conversion.
 
+### F38 — Response HEADERS with request pseudo-headers accepted
+- **Severity:** Medium (protocol): RFC 9113 §8.3.2 forbids `:method`, `:scheme`, `:authority`, `:path`, and `:protocol` on responses. Client only required `:status` (F36) and ignored any request-side pseudos, so a peer could send `:status` + `:method` and the response was delivered as 200 OK.
+- **Evidence:** Response HEADERS with `:status: 200` and `:method: GET` + EOS after request EOS — pre-fix client completed successfully; post-fix `RST_STREAM(PROTOCOL_ERROR)`. Regression `response_headers_with_request_pseudo_is_stream_error`.
+- **Fix branch:** `fix/reject-response-request-pseudos`
+- **Change:** `Pseudo::has_request_pseudos()`; reject in `Recv::recv_headers` before `recv_open` (client); defensive reject in `client::Peer::convert_poll_message`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

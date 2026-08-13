@@ -65,5 +65,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F37):** explicit PROTOCOL_ERROR in server `convert_poll_message` (also covers PUSH_PROMISE request conversion).
 - **Verdict:** F37 is an h2 protocol correctness fix (malformed request acceptance).
 
+### Response with request pseudo-headers
+- **RFC 9113 §8.3.2:** responses MUST NOT include `:method`/`:scheme`/`:authority`/`:path`/`:protocol`.
+- **Rust h2 (pre-F38):** only enforced missing `:status` (F36); request pseudos ignored if status present.
+- **Rust h2 (F38):** stream PROTOCOL_ERROR before `recv_open` when any request pseudo is present.
+- **Verdict:** F38 aligns with RFC; Go treats mixed request/response pseudos as malformed header blocks in similar spirit.
+
 ## Planned comparisons
 - Residual #848 API design.

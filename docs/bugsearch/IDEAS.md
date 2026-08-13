@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F37 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F38 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -37,10 +37,12 @@
 - Uncapped 1xx flood → F35 (cap 5, ENHANCE_YOUR_CALM).
 - Response missing `:status` → F36.
 - Request missing `:path` / CONNECT missing `:authority` → F37.
+- Response with request pseudo-headers (`:method` etc.) → F38.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
+- Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.
 
 ## High priority next
-1. Package PRs for F3–F37.
+1. Package PRs for F3–F38.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
