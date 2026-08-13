@@ -40,7 +40,12 @@ impl GoAway {
         &self.debug_data
     }
 
-    pub fn load(payload: &[u8]) -> Result<GoAway, Error> {
+    pub fn load(head: Head, payload: &[u8]) -> Result<GoAway, Error> {
+        // RFC 9113 §6.8: GOAWAY frames MUST be associated with stream 0.
+        if !head.stream_id().is_zero() {
+            return Err(Error::InvalidStreamId);
+        }
+
         if payload.len() < 8 {
             return Err(Error::BadFrameSize);
         }

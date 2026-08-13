@@ -239,3 +239,24 @@ async fn read_goaway_with_debug_data() {
 
     assert_closed!(codec);
 }
+
+/// RFC 9113 §6.8: GOAWAY frames MUST be associated with stream 0.
+/// Pre-fix `GoAway::load` ignored the frame header stream id.
+#[tokio::test]
+async fn read_goaway_nonzero_stream_id_is_connection_error() {
+    use futures::StreamExt;
+
+    let mut codec = raw_codec! {
+        read => [
+            // head: length=8, type=GOAWAY(7), flags=0, stream_id=1
+            0, 0, 8, 7, 0, 0, 0, 0, 1,
+            // last_stream_id
+            0, 0, 0, 0,
+            // error_code NO_ERROR
+            0, 0, 0, 0,
+        ];
+    };
+
+    let err = codec.next().await.unwrap().unwrap_err();
+    assert_eq!(err.to_string(), "unspecific protocol error detected");
+}
