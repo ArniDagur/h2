@@ -33,6 +33,7 @@
 | `fix/push-validate-before-reserve` | F27 |
 | `fix/client-validate-before-open` | F28 |
 | `fix/poll-capacity-usable-when-partially-assigned` | F29 |
+| `fix/no-error-reset-zero-window` | F30 |
 
 ## experimental contains
-F1–F29, I1–I2, deadlock stress test, docs.
+F1–F30, I1–I2, deadlock stress test, docs.

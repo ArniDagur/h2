@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F29: `poll_capacity` hung with usable capacity when assigned < requested.
+F30: server early-response NO_ERROR hang when peer stream window is already 0.
 
 ## Last actions
-1. Confirmed **F29**: after `send_capacity_inc` was consumed, `poll_capacity` waited until `assigned >= requested`. With `max_send_buffer_size` and/or a partial stream window, `capacity() > 0` while assigned still below a large reservation → hang after the first send.
-2. Fix: if `capacity() > 0`, always `Ready(Some(Ok(capacity)))`; only Pending when usable capacity is 0.
-3. Regression: `poll_capacity_ready_with_usable_capacity_below_requested` (window=10, max_buffer=5, reserve 20).
+1. Confirmed **F30**: `#896` keeps buffered DATA for scheduled NO_ERROR so the response can complete. Peer `INITIAL_WINDOW_SIZE=0` → DATA never flushes → NO_ERROR RST deferred forever after server drops handles on an early response.
+2. Fix: `maybe_cancel` uses CANCEL when unsent body remains and stream window is already closed; keep NO_ERROR when fully flushed or window can still progress (mid-response WU).
+3. Regression: `early_response_zero_window_uses_cancel_not_hang`; existing NO_ERROR body-then-WU tests still pass.
 
 ## Next recommended step
-1. Package PRs for F3–F29.
+1. Package PRs for F3–F30.
 2. Or residual #848 API ready-at-max-open.
 3. Or further FC/wakeup hunt.
 

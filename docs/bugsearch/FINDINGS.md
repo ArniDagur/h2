@@ -154,6 +154,12 @@
 - **Fix branch:** `fix/poll-capacity-usable-when-partially-assigned`
 - **Change:** `poll_capacity` returns Ready whenever `capacity() > 0`; Pending only when usable capacity is 0.
 
+### F30 — Server early-response NO_ERROR hangs when stream window is 0
+- **Severity:** Medium (hang / DoS): `maybe_cancel` scheduled `RST_STREAM(NO_ERROR)` for server streams with send half closed and recv still open (early response, unread request body). `#896` deliberately does **not** discard buffered DATA for NO_ERROR so the complete response can flush first. If the peer advertised `INITIAL_WINDOW_SIZE=0`, unsent response DATA never leaves and NO_ERROR is deferred forever — connection cannot shut down.
+- **Evidence:** Client SETTINGS `initial_window_size(0)`; server `send_response` + `send_data(..., eos)` + drop handles. Pre-fix: no RST within timeout; connection hung. Post-fix: `RST_STREAM(CANCEL)` promptly (window already closed → cannot complete response). Regression `early_response_zero_window_uses_cancel_not_hang`. Existing large-body NO_ERROR + later WU path unchanged (`no_error_response_body_delivered_before_rst`).
+- **Fix branch:** `fix/no-error-reset-zero-window`
+- **Change:** `maybe_cancel` uses NO_ERROR only when response can still flush (`buffered==0` or stream `window_size>0` or `available>0`); otherwise CANCEL so pop_frame discards body and emits RST.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
