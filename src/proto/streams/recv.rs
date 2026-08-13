@@ -323,12 +323,25 @@ impl Recv {
             }
         } else {
             // This is an informational response (1xx status code)
+            // Cap count to limit memory if a peer floods 1xx (Go max1xxResponses).
+            if stream.recv_informational_count >= proto::DEFAULT_MAX_RECV_INFORMATIONAL {
+                proto_err!(
+                    stream: "recv_headers: too many informational responses; stream={:?}; count={}",
+                    stream.id,
+                    stream.recv_informational_count
+                );
+                return Err(Error::library_reset(stream.id, Reason::ENHANCE_YOUR_CALM).into());
+            }
+
             // Convert to response and store it for polling
             let message = counts
                 .peer()
                 .convert_poll_message(pseudo, fields, stream_id)?;
 
             tracing::trace!("Received informational response: stream_id={:?}", stream_id);
+
+            stream.recv_informational_count =
+                stream.recv_informational_count.saturating_add(1);
 
             // Push the informational response onto the stream's recv buffer
             // with a special event type so it can be polled separately

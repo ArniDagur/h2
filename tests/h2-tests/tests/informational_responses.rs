@@ -554,3 +554,50 @@ async fn informational_content_length_does_not_apply_to_final_body() {
 
     join(srv, client).await;
 }
+
+/// Cap informational (1xx) HEADERS per stream (Go max1xxResponses = 5).
+/// A sixth 1xx is a stream ENHANCE_YOUR_CALM so peers cannot grow pending_recv
+/// without bound when the client never drains poll_informational.
+#[tokio::test]
+async fn too_many_informational_responses_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // Five 1xx are allowed.
+        for _ in 0..5 {
+            srv.send_frame(frames::headers(1).response(100)).await;
+        }
+        // Sixth is refused.
+        srv.send_frame(frames::headers(1).response(100)).await;
+        srv.recv_frame(frames::reset(1).reason(Reason::ENHANCE_YOUR_CALM))
+            .await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let err = conn
+            .drive(resp)
+            .await
+            .expect_err("sixth 1xx must error the stream");
+        assert!(err.is_reset(), "expected stream reset, got {}", err);
+        assert_eq!(err.reason(), Some(Reason::ENHANCE_YOUR_CALM));
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}

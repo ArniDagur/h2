@@ -130,6 +130,10 @@ pub(super) struct Stream {
 
     /// Validate content-length headers
     pub content_length: ContentLength,
+
+    /// Number of informational (1xx) HEADERS frames received on this stream.
+    /// Capped by `DEFAULT_MAX_RECV_INFORMATIONAL` to limit memory from floods.
+    pub recv_informational_count: u8,
 }
 
 /// State related to validating a stream's content-length
@@ -213,6 +217,7 @@ impl Stream {
             push_task: None,
             pending_push_promises: store::Queue::new(),
             content_length: ContentLength::Omitted,
+            recv_informational_count: 0,
         }
     }
 

@@ -40,3 +40,7 @@ pub const DEFAULT_RESET_STREAM_MAX: usize = 50;
 // reasonable guess of the average here.
 pub const DEFAULT_RESET_STREAM_SECS: u64 = 1;
 pub const DEFAULT_MAX_SEND_BUFFER_SIZE: usize = 1024 * 400;
+
+/// Max informational (1xx) HEADERS blocks accepted per stream before a stream
+/// error. Matches Go `max1xxResponses` (net/http and x/net/http2).
+pub const DEFAULT_MAX_RECV_INFORMATIONAL: u8 = 5;
