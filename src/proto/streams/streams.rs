@@ -1394,6 +1394,15 @@ impl<B> StreamRef<B> {
         let send_buffer = &mut *send_buffer;
 
         me.counts.transition(stream, |counts, stream| {
+            // RFC 9110 §9.3.6: server MUST NOT send Content-Length in a 2xx
+            // response to traditional CONNECT (stream marked at request recv).
+            if stream.is_connect
+                && response.status().is_success()
+                && response.headers().contains_key(http::header::CONTENT_LENGTH)
+            {
+                return Err(UserError::MalformedHeaders);
+            }
+
             let frame = server::Peer::convert_send_message(stream.id, response, end_of_stream);
 
             actions

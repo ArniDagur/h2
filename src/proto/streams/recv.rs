@@ -376,6 +376,16 @@ impl Recv {
                 .peer()
                 .convert_poll_message(pseudo, fields, stream_id)?;
 
+            // Traditional CONNECT (no extended :protocol): mark so send_response
+            // can reject Content-Length on 2xx (RFC 9110 §9.3.6).
+            if let peer::PollMessage::Server(ref req) = message {
+                if req.method() == http::Method::CONNECT
+                    && req.extensions().get::<crate::ext::Protocol>().is_none()
+                {
+                    stream.is_connect = true;
+                }
+            }
+
             // Push the frame onto the stream's recv buffer
             stream
                 .pending_recv

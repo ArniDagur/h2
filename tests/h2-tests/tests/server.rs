@@ -180,6 +180,54 @@ async fn serve_connect() {
     join(client, srv).await;
 }
 
+/// RFC 9110 §9.3.6: server MUST NOT send Content-Length in a 2xx CONNECT response.
+#[tokio::test]
+async fn send_connect_response_rejects_content_length() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(frames::headers(1).request("CONNECT", "localhost").eos())
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::CONNECT);
+
+        let bad = http::Response::builder()
+            .status(200)
+            .header("content-length", "0")
+            .body(())
+            .unwrap();
+        let err = stream
+            .send_response(bad, true)
+            .expect_err("2xx CONNECT with Content-Length must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        stream
+            .send_response(
+                http::Response::builder().status(200).body(()).unwrap(),
+                true,
+            )
+            .expect("2xx CONNECT without Content-Length ok");
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn push_request() {
     h2_support::trace_init!();
