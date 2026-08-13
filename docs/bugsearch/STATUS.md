@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-`pending_open` occupancy in send concurrency backpressure — fixed as F9.
+F10: local SETTINGS_INITIAL_WINDOW_SIZE increase applied too late (ACK-only).
 
 ## Last actions
-1. Investigated #848 (cloned `SendRequest::ready` always Ready at max concurrent).
-2. Full clone-at-max-open `poll_ready` wait conflicts with existing queue-beyond-max tests (design: per-handle `pending` only). Documented as residual.
-3. Confirmed **F9**: `next_send_stream_will_reach_capacity` ignored `pending_open`, so floods before `poll_complete` could queue unbounded pending streams while `num_send_streams == 0`. Track `num_pending_open` in occupancy for per-handle `is_full` / `Rejected`.
+1. Confirmed **F10**: after `set_initial_window_size` increase, peer may send DATA under the new stream window before SETTINGS_ACK is processed. Expanding recv windows only on ACK caused FLOW_CONTROL_ERROR on that DATA.
+2. Fix: expand when writing SETTINGS (increases only); decreases stay ACK-only. Builder path seeds `Recv::init_window_sz` when advertised size > default.
+3. Regression: `initial_window_increase_accepts_data_before_settings_ack`.
 
 ## Next recommended step
-1. Package PRs for F3–F9.
+1. Package PRs for F3–F10.
 2. Or residual #848: connection-level ready wait when open count is at max (API design).
-3. Or poll_capacity vs poll_reset shared `send_task`.
+3. Or dismiss/document poll_capacity vs poll_reset shared `send_task` (low practical risk: both need `&mut SendStream`).
 
 ## Blockers
 None.

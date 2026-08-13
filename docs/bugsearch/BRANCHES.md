@@ -13,6 +13,7 @@
 | `fix/push-promise-wake-on-parent-end` | F7 |
 | `fix/settings-decrease-wake-capacity` | F8 |
 | `fix/pending-open-occupancy-backpressure` | F9 |
+| `fix/local-settings-window-increase-before-ack` | F10 |
 
 ## experimental contains
-F1–F9, I1–I2, deadlock stress test, docs.
+F1–F10, I1–I2, deadlock stress test, docs.
