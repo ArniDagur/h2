@@ -28,6 +28,7 @@
 | `fix/host-header-vs-authority` | F22 |
 | `fix/data-after-eos-stream-closed` | F23 |
 | `fix/headers-after-eos-stream-closed` | F24 |
+| `fix/push-convert-before-reserve` | F25 |
 
 ## experimental contains
-F1–F24, I1–I2, deadlock stress test, docs.
+F1–F25, I1–I2, deadlock stress test, docs.

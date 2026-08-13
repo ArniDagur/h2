@@ -124,6 +124,12 @@
 - **Fix branch:** `fix/headers-after-eos-stream-closed`
 - **Change:** In `recv_headers`, if `is_recv_end_stream()`, `library_reset(STREAM_CLOSED)` before `recv_trailers`.
 
+### F25 — Invalid `push_request` burned promised stream ids
+- **Severity:** Low–medium (resource / API): `send_push_promise` reserved a local stream id and inserted a child before `convert_push_message`. Rejected pushes (unsafe method, missing `:scheme`, bad Host, …) removed the child but left `next_stream_id` advanced, so the next valid push used a higher id. HTTP/2 allows skips, but wasting ids is unnecessary and mismatched client `send_request` (F21 convert-before-open).
+- **Evidence:** `push_request(POST…)` + `push_request(GET example.com:8080)` errors then `push_request(GET https://…/style.css)` emits `PUSH_PROMISE` promised id **2** (post-fix); pre-fix would use **4** after two burns. Regression `push_request_validation_error_does_not_burn_stream_id`.
+- **Fix branch:** `fix/push-convert-before-reserve`
+- **Change:** `ensure_next_stream_id` → convert → `reserve_local`; assert promised id matches frame.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F24 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F25 fixes; #853 dismiss; I1/I2 conservation.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -23,16 +23,17 @@
 - Host vs :authority outbound (#876) → F22.
 - DATA after recv EOS as GOAWAY PROTOCOL_ERROR → F23 (stream STREAM_CLOSED).
 - HEADERS after recv EOS as GOAWAY PROTOCOL_ERROR → F24 (stream STREAM_CLOSED).
+- Push convert-before-reserve id burn → F25.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F24.
+1. Package PRs for F3–F25.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
+3. Reserved-stream concurrency cap: recv `PUSH_PROMISE` checks `can_inc_num_recv_streams` but reserved streams never inc until headers — unbounded store growth while open count stays low (TODO in streams.rs).
 
 ## Lower priority
 - Upstream notes on findings.
 - Document shared send_task residual if dual waiters via Mutex become a real report.
 - Connection window recovery threshold vs Go/nghttp2 (logged in COMPARISONS).
-- Reserved streams unbounded memory (TODO in streams.rs).
-- Push path still burns promised id if `convert_push_message` fails after `reserve_local` (HTTP/2 allows skips).
 - Idle-stream DATA is connection PROTOCOL_ERROR (RFC §5.1); streams not in store already GOAWAY — reserved-state DATA currently STREAM_CLOSED like Go (acceptable).
+- `send_push_promise` `check_headers` after reserve can still burn id (connection-specific headers); rare vs convert failures.

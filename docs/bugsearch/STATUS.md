@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F24: HEADERS after recv EOS was connection GOAWAY PROTOCOL_ERROR.
+F25: invalid `push_request` burned promised stream ids.
 
 ## Last actions
-1. Confirmed **F24** (F23 sibling): post-EOS HEADERS treated as trailers → `recv_close` on Closed/HalfClosedRemote → GOAWAY `PROTOCOL_ERROR`.
-2. Fix: if `is_recv_end_stream()`, stream error `STREAM_CLOSED` before `recv_trailers` (RFC 9113 §5.1; matches Go `processHeaders`).
-3. Regression: `headers_after_response_eos_is_stream_closed_not_goaway`.
+1. Confirmed **F25** (F21 residual): `send_push_promise` called `reserve_local` before `convert_push_message`, so validation errors advanced `next_stream_id` and later valid pushes skipped ids (2→4).
+2. Fix: peek id → convert → `reserve_local` (same order as client `send_request`).
+3. Regression: `push_request_validation_error_does_not_burn_stream_id` (POST + scheme-less then GET → PP promised id 2).
 
 ## Next recommended step
-1. Package PRs for F3–F24.
-2. Or residual #848 / reserved-stream concurrency cap.
-3. Or push convert-before-`reserve_local` id-burn residual.
+1. Package PRs for F3–F25.
+2. Or residual #848 API ready-at-max-open.
+3. Or reserved-stream concurrency cap TODO (recv PP unbounded while open count low).
 
 ## Blockers
 None.
