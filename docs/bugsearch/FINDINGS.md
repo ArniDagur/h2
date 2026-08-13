@@ -148,6 +148,12 @@
 - **Fix branch:** `fix/client-validate-before-open`
 - **Change:** `Send::check_headers(headers.fields())` after convert, before `open()`.
 
+### F29 — `poll_capacity` Pending while usable capacity remains
+- **Severity:** Medium (hang / API): After the first assignment notification (`send_capacity_inc`), `poll_capacity` required `available >= requested_send_capacity` before Ready. `capacity()` is `min(available, max_send_buffer_size) - buffered`, so a large `reserve_capacity` with a smaller stream window and/or max buffer leaves `capacity() > 0` while `available < requested` after the first send — callers that only `send_data` after `poll_capacity` hang.
+- **Evidence:** Peer `INITIAL_WINDOW_SIZE=10`, client `max_send_buffer_size(5)`, `reserve_capacity(20)`: first Ready(5) and send works; second poll was Pending pre-fix despite capacity 5. Post-fix all four 5-byte slices Ready. Regression `poll_capacity_ready_with_usable_capacity_below_requested`.
+- **Fix branch:** `fix/poll-capacity-usable-when-partially-assigned`
+- **Change:** `poll_capacity` returns Ready whenever `capacity() > 0`; Pending only when usable capacity is 0.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

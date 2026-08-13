@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F28: client connection-headers check after `open()` burned stream ids.
+F29: `poll_capacity` hung with usable capacity when assigned < requested.
 
 ## Last actions
-1. Confirmed **F28** (F21 residual): `Send::check_headers` ran only inside `send_headers` after `open`/insert, so `Connection`/`Transfer-Encoding`/etc. still advanced `next_stream_id`.
-2. Fix: `Send::check_headers` after convert, before `open()`.
-3. Regression: `connection_header_does_not_burn_stream_id` (bad request then good → stream 1).
+1. Confirmed **F29**: after `send_capacity_inc` was consumed, `poll_capacity` waited until `assigned >= requested`. With `max_send_buffer_size` and/or a partial stream window, `capacity() > 0` while assigned still below a large reservation → hang after the first send.
+2. Fix: if `capacity() > 0`, always `Ready(Some(Ok(capacity)))`; only Pending when usable capacity is 0.
+3. Regression: `poll_capacity_ready_with_usable_capacity_below_requested` (window=10, max_buffer=5, reserve 20).
 
 ## Next recommended step
-1. Package PRs for F3–F28.
+1. Package PRs for F3–F29.
 2. Or residual #848 API ready-at-max-open.
-3. Or hunt new FC/wakeup/cancel bugs (id-burn validation paths closed for client+push).
+3. Or further FC/wakeup hunt.
 
 ## Blockers
 None.

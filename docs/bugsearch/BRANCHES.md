@@ -32,6 +32,7 @@
 | `fix/cap-reserved-push-streams` | F26 |
 | `fix/push-validate-before-reserve` | F27 |
 | `fix/client-validate-before-open` | F28 |
+| `fix/poll-capacity-usable-when-partially-assigned` | F29 |
 
 ## experimental contains
-F1–F28, I1–I2, deadlock stress test, docs.
+F1–F29, I1–I2, deadlock stress test, docs.
