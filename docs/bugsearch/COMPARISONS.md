@@ -98,6 +98,14 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **http::uri::Authority:** accepts `":"` / `":80"` with `host() == ""`.
 - **Rust h2 (pre-F66):** accepted on recv; generatable via `https://:80/`.
 - **Rust h2 (F66):** reject empty host after authority parse (recv + generate + Host-only).
+
+### Header field values with leading/trailing SP/HTAB
+- **RFC 9113 §8.2.1:** field values MUST NOT have leading/trailing SP or HTAB; recipients MUST discard or reject.
+- **nghttp2:** `nghttp2_check_header_value_rfc9113` rejects leading/trailing SP/HTAB.
+- **Go (`httpguts.ValidHeaderFieldValue`):** allows LWS (SP/HTAB) including at ends; only rejects CTL.
+- **http::HeaderValue:** accepts and preserves leading/trailing SP/HTAB.
+- **Rust h2 (pre-F67):** passed values through to applications; generatable.
+- **Rust h2 (F67):** reject (PROTOCOL_ERROR on recv; UserError on generate) — matches nghttp2/RFC reject option.
 - **Verdict:** F66 closes empty-host hole left by userinfo-only checks (F44/F45).
 
 ### Asterisk-form `:path`

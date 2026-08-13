@@ -380,6 +380,12 @@
 - **Fix branch:** `fix/reject-empty-authority-host`
 - **Change:** After authority parse, reject empty host on server recv, client send, and push convert; same for Host-only path.
 
+### F67 — Header field values with leading/trailing SP/HTAB accepted
+- **Severity:** Medium (protocol): RFC 9113 §8.2.1 requires recipients to discard or reject field values with leading or trailing SP/HTAB. `http::HeaderValue` accepts and preserves them; nghttp2 rejects via `nghttp2_check_header_value_rfc9113`. Pre-fix, values like `" value"` / `"value "` reached applications and could be generated.
+- **Evidence:** Peer request header with leading/trailing SP or HTAB → post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_request` with such values → `MalformedHeaders`. Units: `header_value_leading_trailing_ws`. Regressions: `recv_header_value_leading_trailing_ws_is_stream_error`, `send_request_rejects_header_value_leading_trailing_ws`.
+- **Fix branch:** `fix/reject-header-value-leading-trailing-ws`
+- **Change:** `frame::header_value_has_leading_trailing_ws`; reject in HPACK load (malformed) and `Send::check_headers` (UserError).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

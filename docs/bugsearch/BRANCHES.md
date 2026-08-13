@@ -70,6 +70,7 @@
 | `fix/te-trailers-case-insensitive` | F64 |
 | `fix/try-assign-saturating-sub` | F65 |
 | `fix/reject-empty-authority-host` | F66 |
+| `fix/reject-header-value-leading-trailing-ws` | F67 |
 
 ## experimental contains
-F1–F66, I1–I2, deadlock stress test, docs.
+F1–F67, I1–I2, deadlock stress test, docs.
