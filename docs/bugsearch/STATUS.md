@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F62 pending merge)
+**Branch tip:** `experimental/bugsearch` (F62 @ `5a336b1`)
 
 ## Current focus
 F62: non-CONNECT requests require `:authority` or Host.
