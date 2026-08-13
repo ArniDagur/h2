@@ -105,6 +105,10 @@
 - Second refuse while `refused` is Some asserts; poll_ready sends RST before the next `poll_next`, and CodecFull stops reads — same poll-ordering class as SETTINGS ACK.
 - `try_assign_capacity` does not skip `is_pending_push` (only `pending_open`). PP is not flow-controlled; next `poll_complete` writes PP then the child can send. Not a hang.
 - SETTINGS MAX_FRAME_SIZE outside 2^14..2^24-1 already InvalidSettingValue (no zero-length DATA spin).
+- Peer RST `send.handle_error` reclaims with `task=None`. Unlike F76 (user-thread reclaim while parked on read), RST runs inside `poll2`; after `poll_next` Pending, `poll_complete` writes any stream that inherited the capacity.
+- `poll_accept`: `poll_closed` Ready → `None` without draining `pending_accept` (TODO). Connection is already closed; no parked accept waiter beyond that Ready. #30 is the related maintainer-punted reset-in-queue case.
+- No mid-connection MAX_FRAME_SIZE API; builder applies `set_max_recv_frame_size` at handshake (ACK path still updates). Not an F10-style race.
+- Ignored empty tests (`stream_close_by_recv_reset_frame_releases_capacity`, `recv_window_update_causes_overflow`, `accept_with_pending_connections_after_socket_close`) are stubs, not failing cases.
 
 ## High priority next
 1. Package PRs for F3–F87.
