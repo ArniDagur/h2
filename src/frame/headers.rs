@@ -586,10 +586,20 @@ impl Pseudo {
         let (scheme, path) = if method == Method::CONNECT && protocol.is_none() {
             (None, None)
         } else {
-            let path = parts
-                .path_and_query
-                .map(|v| BytesStr::from(v.as_str()))
-                .unwrap_or(BytesStr::from_static(""));
+            // http::Uri represents empty path + query as path_and_query "?q"
+            // (path() is still "/"). HTTP/2 :path must be path-absolute or
+            // OPTIONS "*", so normalize query-only to "/?q".
+            let path = match parts.path_and_query {
+                Some(pq) => {
+                    let s = pq.as_str();
+                    if s.starts_with('?') {
+                        BytesStr::from(&format!("/{s}"))
+                    } else {
+                        BytesStr::from(s)
+                    }
+                }
+                None => BytesStr::from_static(""),
+            };
 
             let path = if !path.is_empty() {
                 path
@@ -1286,6 +1296,26 @@ mod test {
                 method: Method::OPTIONS.into(),
                 authority: BytesStr::from_static("example.com:8080").into(),
                 path: BytesStr::from_static("*").into(),
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_query_only_uri_path_is_normalized_to_slash_query() {
+        // http::Uri path_and_query for https://example.com?q=1 is "?q=1" while
+        // path() is "/". HTTP/2 :path must be path-absolute → "/?q=1".
+        assert_eq!(
+            Pseudo::request(
+                Method::GET,
+                Uri::from_static("https://example.com?q=1"),
+                None,
+            ),
+            Pseudo {
+                method: Method::GET.into(),
+                scheme: BytesStr::from_static("https").into(),
+                authority: BytesStr::from_static("example.com").into(),
+                path: BytesStr::from_static("/?q=1").into(),
                 ..Default::default()
             }
         );

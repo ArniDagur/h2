@@ -1864,6 +1864,59 @@ async fn reject_request_empty_host_in_authority() {
     join(client, srv).await;
 }
 
+/// RFC 9113 §8.3.1 / nghttp2: :path for http(s) must be path-absolute ("/"…)
+/// or OPTIONS "*". PathAndQuery accepts query-only "?q=1"; that is not valid
+/// as :path. Pre-fix accepted it.
+#[tokio::test]
+async fn reject_request_path_without_leading_slash() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("https").into(),
+                        authority: util::byte_str("example.com").into(),
+                        path: util::byte_str("?q=1").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/?q=1")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(3).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().path(), "/");
+        assert_eq!(req.uri().query(), Some("q=1"));
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// nghttp2 / RFC 9113: non-CONNECT requests need :authority or Host.
 /// Pre-fix accepted scheme+path only (not routable).
 #[tokio::test]

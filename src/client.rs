@@ -1682,12 +1682,15 @@ impl Peer {
             pseudo.set_scheme(uri::Scheme::HTTP);
         }
 
-        // Asterisk-form `:path` is only valid for OPTIONS (RFC 9110 §7.1).
+        // RFC 9113 §8.3.1 / nghttp2: :path must be path-absolute or OPTIONS "*".
+        // Pseudo::request normalizes query-only Uri forms ("?q" → "/?q"); reject
+        // any remaining invalid form (and non-OPTIONS asterisk).
         if !is_connect {
-            if pseudo.path.as_ref().map(|p| p.as_str()) == Some("*")
-                && pseudo.method.as_ref() != Some(&Method::OPTIONS)
-            {
-                return Err(UserError::MalformedHeaders.into());
+            if let Some(ref path) = pseudo.path {
+                let is_options = pseudo.method.as_ref() == Some(&Method::OPTIONS);
+                if !frame::is_valid_path(path.as_str(), is_options) {
+                    return Err(UserError::MalformedHeaders.into());
+                }
             }
         }
 

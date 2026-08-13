@@ -1641,11 +1641,12 @@ impl Peer {
             _ => {}
         }
 
-        // Asterisk-form is OPTIONS-only (RFC 9110 §7.1); also unlikely for push.
-        if pseudo.path.as_ref().map(|p| p.as_str()) == Some("*")
-            && pseudo.method.as_ref() != Some(&Method::OPTIONS)
-        {
-            return Err(UserError::MalformedHeaders);
+        // RFC 9113 §8.3.1 / nghttp2: :path path-absolute or OPTIONS "*".
+        if let Some(ref path) = pseudo.path {
+            let is_options = pseudo.method.as_ref() == Some(&Method::OPTIONS);
+            if !frame::is_valid_path(path.as_str(), is_options) {
+                return Err(UserError::MalformedHeaders);
+            }
         }
 
         // Connection-specific fields must be rejected here so `push_request`
@@ -1826,11 +1827,14 @@ impl proto::Peer for Peer {
                 malformed!("malformed headers: missing path");
             }
 
-            // RFC 9110 §7.1 / RFC 9113 §8.3.1: asterisk-form (`*`) is only for
-            // OPTIONS. nghttp2 enforces the same for http/https. Other methods
-            // with `:path: *` were accepted via PathAndQuery.
-            if path.as_str() == "*" && method != Method::OPTIONS {
-                malformed!("malformed headers: asterisk :path only allowed for OPTIONS");
+            // RFC 9113 §8.3.1 / nghttp2: http(s) :path must be path-absolute
+            // ("/"…) or OPTIONS asterisk-form ("*"). PathAndQuery also accepts
+            // query-only forms like "?q=1" which are not valid :path values.
+            if !frame::is_valid_path(path.as_str(), method == Method::OPTIONS) {
+                malformed!(
+                    "malformed headers: invalid :path form ({:?})",
+                    path,
+                );
             }
 
             let maybe_path = uri::PathAndQuery::from_maybe_shared(path.clone().into_inner());
