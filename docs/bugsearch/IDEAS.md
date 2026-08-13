@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F86 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F87 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -85,6 +85,7 @@
 - Malformed header mid-CONTINUATION dropped HPACK / accepted Connection → F84.
 - Malformed PUSH_PROMISE HPACK RST'd parent (not promised) → F85.
 - Uppercase/invalid header name was HPACK GOAWAY → F86.
+- Empty header name was NeedMore/GOAWAY → F87 (F86 residual).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
 - F81 scheduled-reset recv_task: woken on RST pop / pending_open abort `set_reset`, not at schedule time.
 - Auto-release DATA burst after RecvStream drop: window_size still decrements on consume; 4×16KiB without WU exceeds 65535 (peer FC error). WU-in-poll_ready would only help a peer that keeps sending past the advertised window, or a PING flood that never lets poll_next go Pending (fairness, not a silent correctness hang).
@@ -99,7 +100,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F86.
+1. Package PRs for F3–F87.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

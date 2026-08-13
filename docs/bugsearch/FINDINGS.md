@@ -505,6 +505,12 @@
 - **Fix branch:** `fix/uppercase-header-name-stream-error`
 - **Change:** `Header::Malformed` for semantic HTTP errors (uppercase name, CTL value, unknown/invalid pseudo). HPACK continues (not inserted). `HeaderBlock::load` sets `is_malformed` → existing stream RST path (F84/F85).
 
+### F87 — Empty header field name treated as HPACK NeedMore / GOAWAY
+- **Severity:** Medium (connection-kill): F86 residual. RFC 9113 §8.2.1: an empty field name is malformed (stream PROTOCOL_ERROR). `Header::new` returned `NeedMore(UnexpectedEndOfStream)` for a **complete** zero-length name string. With END_HEADERS that became codec GOAWAY PROTOCOL_ERROR.
+- **Evidence:** Literal empty name + `foo` after a valid GET: pre-fix GOAWAY; post-fix `RST_STREAM(1)`, stream 3 succeeds. Unit: `empty_header_name_is_malformed_not_need_more`. Regression: `recv_empty_header_name_is_stream_error`.
+- **Fix branch:** `fix/empty-header-name-stream-error`
+- **Change:** `Header::new("")` → `Header::Malformed` (same stream-RST path as F86).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

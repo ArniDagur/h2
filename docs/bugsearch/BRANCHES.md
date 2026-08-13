@@ -90,6 +90,7 @@
 | `fix/malformed-headers-continuation-hpack` | F84 |
 | `fix/malformed-push-promise-resets-promised` | F85 |
 | `fix/uppercase-header-name-stream-error` | F86 |
+| `fix/empty-header-name-stream-error` | F87 |
 
 ## experimental contains
-F1–F86, I1–I2, deadlock stress test, docs.
+F1–F87, I1–I2, deadlock stress test, docs.

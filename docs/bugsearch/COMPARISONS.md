@@ -273,6 +273,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F83):** enable applied when SETTINGS is written. ACK still sets the flag (idempotent).
 - **Verdict:** F83 is an h2-local race fix, same class as F10/F82.
 
+### Empty header field name
+- **RFC 9113 §8.2.1:** an empty field name is malformed (stream PROTOCOL_ERROR).
+- **Rust h2 (pre-F87):** `Header::new` treated a complete zero-length name as HPACK `NeedMore` → GOAWAY when END_HEADERS was set.
+- **Rust h2 (F87):** `Header::Malformed` / stream RST (F86 path).
+- **Verdict:** F87 is an F86 residual (connection-kill → stream error).
+
 ### Uppercase / invalid header field names
 - **RFC 9113 §8.2.1:** uppercase letters in field names (and other invalid name/value bytes) are **malformed** (stream PROTOCOL_ERROR).
 - **nghttp2:** invalid / non-lowercase field names → stream error, HPACK continues.
