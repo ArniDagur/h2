@@ -2477,6 +2477,53 @@ async fn server_enable_push_one_is_connection_error() {
     join(srv, h2).await;
 }
 
+/// RFC 9110 §7.2: more than one Host field is invalid (before Host→:authority).
+#[tokio::test]
+async fn send_request_rejects_multiple_host_headers() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.expect("handshake");
+
+        let mut bad = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        bad.headers_mut()
+            .append(http::header::HOST, "example.com".parse().unwrap());
+        bad.headers_mut()
+            .append(http::header::HOST, "evil.example".parse().unwrap());
+        client
+            .send_request(bad, true)
+            .expect_err("multiple Host must be UserError");
+
+        let good = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(good, true).expect("stream 1");
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        drop(client);
+        h2.await.expect("h2");
+    };
+
+    join(srv, h2).await;
+}
+
 /// Empty :protocol is not a valid ALPN token (RFC 8441 / nghttp2).
 #[tokio::test]
 async fn send_request_rejects_empty_protocol() {

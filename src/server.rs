@@ -1613,6 +1613,11 @@ impl Peer {
         let mut pseudo = Pseudo::request(method, uri, None);
         let mut headers = headers;
 
+        // RFC 9110 §7.2 / nghttp2: more than one Host is invalid.
+        if headers.get_all(http::header::HOST).iter().count() > 1 {
+            return Err(UserError::MalformedHeaders);
+        }
+
         // Same Host → :authority normalization as client requests (#876).
         if Pseudo::promote_host_header(&mut headers, &mut pseudo).is_err() {
             return Err(UserError::MalformedHeaders);
@@ -1859,17 +1864,23 @@ impl proto::Peer for Peer {
 
         b = b.uri(parts);
 
-        // RFC 9113 §8.3.1: a server SHOULD treat a request as malformed if Host
-        // identifies a different entity than :authority. Reject mismatches so
-        // authority confusion cannot reach the application (Go #80065).
-        if let (Some(host), Some(authority)) = (fields.get(http::header::HOST), &pseudo.authority)
-        {
-            if host.as_bytes() != authority.as_str().as_bytes() {
-                malformed!(
-                    "malformed headers: Host ({:?}) differs from :authority ({:?})",
-                    host,
-                    authority,
-                );
+        // RFC 9110 §7.2: more than one Host field is invalid. nghttp2 rejects
+        // a second Host (HTTP_FLAG_HOST already set). HPACK can append multiples.
+        let mut host_iter = fields.get_all(http::header::HOST).iter();
+        if let Some(host) = host_iter.next() {
+            if host_iter.next().is_some() {
+                malformed!("malformed headers: multiple Host fields");
+            }
+            // RFC 9113 §8.3.1: a server SHOULD treat a request as malformed if
+            // Host identifies a different entity than :authority (Go #80065).
+            if let Some(authority) = &pseudo.authority {
+                if host.as_bytes() != authority.as_str().as_bytes() {
+                    malformed!(
+                        "malformed headers: Host ({:?}) differs from :authority ({:?})",
+                        host,
+                        authority,
+                    );
+                }
             }
         }
 

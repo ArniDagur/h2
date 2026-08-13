@@ -2659,6 +2659,40 @@ async fn reject_host_header_differing_from_authority() {
     join(client, srv).await;
 }
 
+/// RFC 9110 §7.2 / nghttp2: more than one Host field is invalid.
+/// Pre-fix accepted multiples; only the first was compared to :authority.
+#[tokio::test]
+async fn reject_multiple_host_headers() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        let mut fields = http::HeaderMap::new();
+        fields.append(http::header::HOST, "example.com".parse().unwrap());
+        fields.append(http::header::HOST, "evil.example".parse().unwrap());
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .fields(fields)
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        assert!(srv.next().await.is_none(), "multiple Host must not be accepted");
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn reject_request_missing_path_pseudo() {
     h2_support::trace_init!();

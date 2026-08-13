@@ -109,6 +109,14 @@ impl Send {
                 return Err(UserError::MalformedHeaders);
             }
         }
+
+        // RFC 9110 §7.2: more than one Host field is invalid (nghttp2 rejects).
+        // Outbound Host is usually stripped when promoted to :authority; still
+        // reject multiples if the application left them in the map.
+        if fields.get_all(http::header::HOST).iter().count() > 1 {
+            tracing::debug!("multiple Host header fields");
+            return Err(UserError::MalformedHeaders);
+        }
         Ok(())
     }
 
