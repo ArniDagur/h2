@@ -440,6 +440,12 @@
 - **Fix branch:** `fix/reserve-capacity-reclaim-wakes-send`
 - **Change:** Thread connection waker through reserve/assign/try_assign; wake when `try_assign_capacity` schedules `pending_send`.
 
+### F77 — Dropping `SendStream` leaks reserved send capacity while recv handles live
+- **Severity:** Medium (FC / hang): `ref_count` is shared by send and recv handles. Dropping `SendStream` while `ResponseFuture`/`RecvStream` is held did not cancel and did not reclaim `reserve_capacity`. Unused assignment stayed on the stream until every handle dropped, so other streams' DATA could starve.
+- **Evidence:** Hold reservation on stream 1, drop only `SendStream`, stream 3 `send_data`: post-fix DATA is sent. Regression: `drop_send_stream_reclaims_reserved_capacity`.
+- **Fix branch:** `fix/drop-send-reclaims-reserved-capacity`
+- **Change:** `Stream::send_ref_count` on `StreamRef` clone/drop; last send handle calls `reclaim_reserved_capacity` (keeps capacity for buffered DATA).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
