@@ -501,3 +501,56 @@ async fn informational_response_with_end_stream_is_stream_error() {
 
     join(srv, client).await;
 }
+
+/// Content-Length on a 1xx response must not bind the final message body.
+/// Pre-fix applied CL from 100 Continue to stream.content_length, so a final
+/// 200 with a short body (no CL) failed content-length checks.
+#[tokio::test]
+async fn informational_content_length_does_not_apply_to_final_body() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // 100 Continue with a misleading Content-Length.
+        srv.send_frame(
+            frames::headers(1)
+                .response(100)
+                .field("content-length", 100),
+        )
+        .await;
+        // Final response: no Content-Length, 5-byte body with EOS.
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(frames::data(1, &b"hello"[..]).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("final response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let mut body = resp.into_body();
+        let chunk = conn
+            .drive(body.data())
+            .await
+            .expect("body chunk")
+            .expect("body ok");
+        assert_eq!(chunk.as_ref(), b"hello");
+        assert!(conn.drive(body.data()).await.is_none());
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}

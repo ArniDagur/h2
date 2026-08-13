@@ -220,7 +220,11 @@ impl Recv {
             counts.inc_num_recv_streams(stream);
         }
 
-        if !stream.content_length.is_head() {
+        // Content-Length applies only to the final response / request message.
+        // Informational (1xx) HEADERS must not set stream.content_length — a
+        // Content-Length on 100 Continue would make a later final body with no
+        // CL fail ensure_content_length_zero (or accept the wrong length).
+        if !frame.is_informational() && !stream.content_length.is_head() {
             use super::stream::ContentLength;
             use http::header;
 
