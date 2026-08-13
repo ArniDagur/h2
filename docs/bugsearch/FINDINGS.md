@@ -178,6 +178,12 @@
 - **Fix branch:** `fix/reject-informational-end-stream`
 - **Change:** Reject `is_informational() && is_end_stream()` before `recv_open`.
 
+### F34 — Content-Length on 1xx applied to final message body
+- **Severity:** Medium (protocol / correctness): `recv_headers` set `stream.content_length` from any HEADERS frame before branching on informational. A `100 Continue` with `Content-Length` bound the final body; final 200 without CL then failed `ensure_content_length_zero` (or enforced the wrong length).
+- **Evidence:** 100 + `Content-Length: 100`, then 200 + 5-byte DATA EOS — pre-fix stream PROTOCOL_ERROR; post-fix body `hello` accepted. Regression `informational_content_length_does_not_apply_to_final_body`.
+- **Fix branch:** `fix/ignore-content-length-on-1xx`
+- **Change:** Skip Content-Length bookkeeping when `frame.is_informational()`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
