@@ -938,6 +938,58 @@ async fn recv_connection_header() {
     join(client, srv).await;
 }
 
+/// RFC 9113 §8.2.1: field values MUST NOT have leading or trailing SP/HTAB.
+/// nghttp2 rejects these; http::HeaderValue accepts them so h2 must check.
+#[tokio::test]
+async fn recv_header_value_leading_trailing_ws_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+
+        let leading = http::HeaderValue::from_bytes(b" value").unwrap();
+        let trailing = http::HeaderValue::from_bytes(b"value ").unwrap();
+        let tab = http::HeaderValue::from_bytes(b"\tvalue").unwrap();
+
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .field("x-a", leading)
+                    .eos(),
+            )
+            .await;
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/")
+                    .field("x-b", trailing)
+                    .eos(),
+            )
+            .await;
+        client
+            .send_frame(
+                frames::headers(5)
+                    .request("GET", "https://example.com/")
+                    .field("x-c", tab)
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+        client.recv_frame(frames::reset(3).protocol_error()).await;
+        client.recv_frame(frames::reset(5).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn sends_reset_no_error_when_req_body_is_dropped() {
     h2_support::trace_init!();

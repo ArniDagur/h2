@@ -16,6 +16,19 @@ pub(crate) fn is_valid_scheme(s: &str) -> bool {
     bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
 }
 
+/// RFC 9113 §8.2.1: field values MUST NOT have leading or trailing SP/HTAB.
+///
+/// Recipients MUST discard or reject such values. `http::HeaderValue` accepts
+/// them; nghttp2 rejects via `nghttp2_check_header_value_rfc9113`.
+pub(crate) fn header_value_has_leading_trailing_ws(value: &[u8]) -> bool {
+    match value {
+        [] => false,
+        [first, ..] if *first == b' ' || *first == b'\t' => true,
+        [.., last] if *last == b' ' || *last == b'\t' => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -31,6 +44,19 @@ mod tests {
         assert!(!is_valid_scheme("1http"));
         assert!(!is_valid_scheme("+http"));
         assert!(!is_valid_scheme("ht!tp"));
+    }
+
+    #[test]
+    fn header_value_leading_trailing_ws() {
+        assert!(!header_value_has_leading_trailing_ws(b""));
+        assert!(!header_value_has_leading_trailing_ws(b"ok"));
+        assert!(!header_value_has_leading_trailing_ws(b"a b"));
+        assert!(header_value_has_leading_trailing_ws(b" leading"));
+        assert!(header_value_has_leading_trailing_ws(b"trailing "));
+        assert!(header_value_has_leading_trailing_ws(b" both "));
+        assert!(header_value_has_leading_trailing_ws(b"\t"));
+        assert!(header_value_has_leading_trailing_ws(b"\tx"));
+        assert!(header_value_has_leading_trailing_ws(b"x\t"));
     }
 }
 
