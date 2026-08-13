@@ -77,6 +77,7 @@
 | `fix/reject-empty-protocol` | F71 |
 | `fix/reject-duplicate-host` | F72 |
 | `fix/reject-host-userinfo` | F73 |
+| `fix/cl-eos-before-recv-open` | F74 |
 
 ## experimental contains
-F1–F73, I1–I2, deadlock stress test, docs.
+F1–F74, I1–I2, deadlock stress test, docs.

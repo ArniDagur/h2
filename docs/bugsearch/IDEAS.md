@@ -72,6 +72,7 @@
 - Empty / whitespace `:protocol` → F71.
 - Multiple Host header fields → F72.
 - Userinfo in Host (Host-only path) → F73.
+- END_STREAM + non-zero CL RST after request EOS → F74.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 - Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.
@@ -80,7 +81,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F73.
+1. Package PRs for F3–F74.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -101,4 +102,4 @@
 - Inbound 204 with CL:0 still accepted (nghttp2 strips; F68 rejects non-zero only). Outbound still rejects any CL on 204 (stricter generate).
 - `max_send_buffer_size(0)` makes `poll_capacity` Pending forever (API footgun); optional builder assert.
 - Local ENABLE_PUSH mid-connection: Recv flag only set at build; no public API to change push after handshake — OK for current surface.
-- Non-zero CL + END_STREAM after request EOS may not emit RST (stream fully closed first); client errors; optional pre-recv_open CL checks for all statuses (F68 did 204 only for RST).
+- Non-EOS CL parse/mismatch errors after request EOS still after recv_open (stream not fully closed; RST works).

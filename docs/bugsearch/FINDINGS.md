@@ -422,6 +422,12 @@
 - **Fix branch:** `fix/reject-host-userinfo`
 - **Change:** Server Host-only path rejects `@` in Host before Authority parse (same as `:authority`).
 
+### F74 — END_STREAM + non-zero Content-Length did not emit RST after request EOS
+- **Severity:** Medium (protocol): RFC 9113 §8.1.1 forbids non-zero Content-Length with END_STREAM (except 304). Validation ran after `recv_open`. When the request already had EOS, that fully closes the stream so `send_reset` no-ops and the peer never sees `RST_STREAM`. F68 fixed this only for 204.
+- **Evidence:** Response 200 + `Content-Length: 100` + EOS after request EOS → post-fix peer receives `RST_STREAM(PROTOCOL_ERROR)`. Regression: `reject_none_zero_content_length_header_with_end_stream` (now expects RST).
+- **Fix branch:** `fix/cl-eos-before-recv-open`
+- **Change:** Parse/mismatch/non-zero CL on END_STREAM headers before `recv_open` (skip HEAD and successful CONNECT); post-recv_open path still sets Remaining for tracking.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

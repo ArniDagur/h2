@@ -79,6 +79,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (pre-F73):** Host-only origin-form still accepted `Host: user@host` (`http::Authority` parses userinfo; `host()` non-empty).
 - **Rust h2 (F73):** Host-only path rejects `@` in Host (same as `:authority`).
 
+### END_STREAM + non-zero Content-Length and RST timing
+- **RFC 9113 §8.1.1:** non-zero Content-Length with END_STREAM is malformed (except 304 representation length).
+- **Rust h2 (pre-F74):** CL validated after `recv_open`; request EOS + response EOS fully closed the stream before `send_reset` → peer often never saw RST.
+- **Rust h2 (F74):** END_STREAM CL parse/mismatch/non-zero checks run before `recv_open` (304 exception; HEAD/CONNECT success skip).
+
 ### 101 Switching Protocols
 - **RFC 9113 §8.1:** HTTP/2 does not support 101 (Switching Protocols); Upgrade is not used on HTTP/2.
 - **Rust h2 (pre-F57):** 101 treated as ordinary informational 1xx on recv and generatable via `send_informational`.
