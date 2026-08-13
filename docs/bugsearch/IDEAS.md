@@ -86,6 +86,8 @@
 - Malformed PUSH_PROMISE HPACK RST'd parent (not promised) → F85.
 - Uppercase/invalid header name was HPACK GOAWAY → F86.
 - Empty header name was NeedMore/GOAWAY → F87 (F86 residual).
+- `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
+- F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
 - F81 scheduled-reset recv_task: woken on RST pop / pending_open abort `set_reset`, not at schedule time.
 - Auto-release DATA burst after RecvStream drop: window_size still decrements on consume; 4×16KiB without WU exceeds 65535 (peer FC error). WU-in-poll_ready would only help a peer that keeps sending past the advertised window, or a PING flood that never lets poll_next go Pending (fairness, not a silent correctness hang).
