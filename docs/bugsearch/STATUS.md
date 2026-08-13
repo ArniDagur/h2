@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F71 @ `3e62e66`)
+**Branch tip:** `experimental/bugsearch` (F72 @ `ec82534`)
 
 ## Current focus
-F71: empty / whitespace `:protocol` on extended CONNECT.
+F72: multiple Host header fields.
 
 ## Last actions
-1. Confirmed **F71**: nghttp2 rejects empty pseudo values; empty `Protocol` was accepted as extended CONNECT; SP/HTAB padding also accepted.
-2. Fix: reject empty or leading/trailing-WS `:protocol` on server recv and client send.
-3. Regressions: `reject_empty_protocol_pseudo`, `send_request_rejects_empty_protocol`.
+1. Confirmed **F72**: RFC 9110 §7.2 / nghttp2 reject multiple Host; pre-fix accepted multiples and only compared the first to `:authority`.
+2. Fix: reject multi-Host on server recv, client/push generate (before promote), and `Send::check_headers`.
+3. Regressions: `reject_multiple_host_headers`, `send_request_rejects_multiple_host_headers`.
 
 ## Next recommended step
-1. Package PRs for F3–F71.
+1. Package PRs for F3–F72.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt (empty IPv6 `[]` residual).
 

@@ -410,6 +410,12 @@
 - **Fix branch:** `fix/reject-empty-protocol`
 - **Change:** Server `convert_poll_message` and client `convert_send_message` reject empty or leading/trailing-WS protocol tokens.
 
+### F72 — Multiple `Host` header fields accepted
+- **Severity:** Medium (protocol / security): RFC 9110 §7.2 forbids more than one Host field. nghttp2 rejects a second Host (`HTTP_FLAG_HOST` already set). Pre-fix HPACK `try_append` allowed multiples; F42 only compared the first Host to `:authority`, so a second differing Host could still reach the application.
+- **Evidence:** Peer request with two Host values → post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_request` with two Host appends → `MalformedHeaders` (before Host→:authority promote). Regressions: `reject_multiple_host_headers`, `send_request_rejects_multiple_host_headers`.
+- **Fix branch:** `fix/reject-duplicate-host`
+- **Change:** Reject `get_all(HOST).count() > 1` on server recv, client send (before promote), push convert, and `Send::check_headers`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

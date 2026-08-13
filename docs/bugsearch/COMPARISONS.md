@@ -67,6 +67,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (pre-F71):** empty `Protocol` and SP/HTAB-padded values accepted as extended CONNECT.
 - **Rust h2 (F71):** reject empty or leading/trailing-WS protocol on recv and generate.
 
+### Multiple Host header fields
+- **RFC 9110 §7.2:** more than one Host field is invalid (HTTP/1.1 400; same field semantics apply when Host is present on H2).
+- **nghttp2:** second Host fails `check_pseudo_header` (HTTP_FLAG_HOST already set).
+- **Rust h2 (pre-F72):** HPACK append allowed multiples; F42 compared only the first to `:authority`.
+- **Rust h2 (F72):** reject multi-Host on recv and generate.
+
 ### 101 Switching Protocols
 - **RFC 9113 §8.1:** HTTP/2 does not support 101 (Switching Protocols); Upgrade is not used on HTTP/2.
 - **Rust h2 (pre-F57):** 101 treated as ordinary informational 1xx on recv and generatable via `send_informational`.

@@ -75,6 +75,7 @@
 | `fix/reject-path-without-leading-slash` | F69 |
 | `fix/reject-content-length-on-1xx` | F70 |
 | `fix/reject-empty-protocol` | F71 |
+| `fix/reject-duplicate-host` | F72 |
 
 ## experimental contains
-F1–F71, I1–I2, deadlock stress test, docs.
+F1–F72, I1–I2, deadlock stress test, docs.
