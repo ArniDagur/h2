@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F59 pending merge)
+**Branch tip:** `experimental/bugsearch` (F59 @ `ec0114d`)
 
 ## Current focus
 F59: empty `:scheme` accepted on receive and generate.
