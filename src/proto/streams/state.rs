@@ -440,6 +440,15 @@ impl State {
         )
     }
 
+    /// RFC 9113 §6.6: PUSH_PROMISE only on peer-initiated streams in open or
+    /// half-closed (remote).
+    pub fn is_send_push_promise_allowed(&self) -> bool {
+        matches!(
+            self.inner,
+            Open { .. } | HalfClosedRemote(..)
+        )
+    }
+
     pub fn is_idle(&self) -> bool {
         matches!(self.inner, Idle)
     }

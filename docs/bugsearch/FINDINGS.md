@@ -94,6 +94,12 @@
 - **Fix branch:** `fix/clear-queue-discards-unsent-push-children`
 - **Change:** `clear_queue` takes `counts`; on dropped PushPromise, clear child frames, library CANCEL, `transition_after`.
 
+### F20 — PUSH_PROMISE after parent closed
+- **Severity:** Medium (protocol): RFC 9113 §6.6 requires PUSH_PROMISE only on open or half-closed (remote) peer-initiated streams. After `send_response(..., true)` with client request EOS, parent is Closed, but `push_request` still reserved a child id and queued PP.
+- **Evidence:** `push_request_after_response_eos_is_user_error` expects `UserError`; pre-fix succeeded and would emit PP on a closed stream.
+- **Fix branch:** `fix/push-promise-parent-state-check`
+- **Change:** `is_send_push_promise_allowed` on `State`; `send_push_promise` rejects before allocating promised stream.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

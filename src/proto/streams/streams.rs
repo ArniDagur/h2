@@ -1332,6 +1332,14 @@ impl<B> StreamRef<B> {
         let mut send_buffer = self.send_buffer.inner.lock().unwrap();
         let send_buffer = &mut *send_buffer;
 
+        // Check parent before allocating a promised stream id / store slot.
+        {
+            let parent = me.store.resolve(self.opaque.key);
+            if !parent.state.is_send_push_promise_allowed() {
+                return Err(UserError::UnexpectedFrameType);
+            }
+        }
+
         let actions = &mut me.actions;
         let promised_id = actions.send.reserve_local()?;
 

@@ -23,6 +23,7 @@
 | `fix/pending-open-cancel-without-pending-ref` | F17 |
 | `fix/pending-push-cancel-sends-reset` | F18 |
 | `fix/clear-queue-discards-unsent-push-children` | F19 |
+| `fix/push-promise-parent-state-check` | F20 |
 
 ## experimental contains
-F1–F19, I1–I2, deadlock stress test, docs.
+F1–F20, I1–I2, deadlock stress test, docs.

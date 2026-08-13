@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F19: clear_queue dropped unsent PUSH_PROMISE without freeing promised child.
+F20: PUSH_PROMISE allowed after parent stream closed (RFC violation).
 
 ## Last actions
-1. Confirmed **F19** (F18 residual): parent `send_reset` / clear_queue discarded queued PUSH_PROMISE frames without closing the promised stream — orphaned `is_pending_push` child (no wire frames, slab leak until accidental free).
-2. Fix: when dropping a PushPromise in `clear_queue`, locally CANCEL the promised stream (never on wire → no RST) and `transition_after`.
-3. Regression: `parent_reset_discards_unsent_push_promise_child`.
+1. Confirmed **F20**: `send_push_promise` did not check parent state; after `send_response(..., true)` on a client-EOS stream the parent is Closed, but `push_request` still queued PUSH_PROMISE (RFC 9113 §6.6 allows only open / half-closed remote).
+2. Fix: `State::is_send_push_promise_allowed`; reject with `UnexpectedFrameType` before allocating promised id.
+3. Regression: `push_request_after_response_eos_is_user_error`; adjusted F18 test to push before parent EOS.
 
 ## Next recommended step
-1. Package PRs for F3–F19.
+1. Package PRs for F3–F20.
 2. Or residual #848 / #30 pending_accept design.
 3. Or reserved-stream concurrency cap TODO.
 
