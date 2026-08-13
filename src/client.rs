@@ -1641,6 +1641,12 @@ impl Peer {
             }
         }
 
+        // RFC 9110 §7.2 / nghttp2: more than one Host is invalid. Check before
+        // promote_host_header, which remove()s all Host values at once.
+        if headers.get_all(http::header::HOST).iter().count() > 1 {
+            return Err(UserError::MalformedHeaders.into());
+        }
+
         // Build the set pseudo header set. All requests will include `method`
         // and `path`.
         let mut pseudo = Pseudo::request(method, uri, protocol);
