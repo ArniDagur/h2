@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F94 — Cancelled `pending_push` after `send_response` still emits HEADERS
+- **Severity:** Medium (protocol / concurrency): F18/F93 residual. `send_response` queues HEADERS on the child, then drop schedules RESET while `is_pending_push`. PP pop only `pending_send.push`'d the child — queued HEADERS flushed first, opening the promised stream, and that branch does **not** `inc_num_send_streams`. With `MAX_CONCURRENT_STREAMS` already full, the cancelled push opened on the wire anyway.
+- **Evidence:** max=1; occupy slot with stream 2; `send_response` on stream 4 then drop before flush. Pre-fix: HEADERS(4) then RST (mock mismatch / opened over max). Post-fix: PP(4) then `RST_STREAM(4) CANCEL` only. Regression `drop_push_after_response_before_pp_flush_sends_reset_not_headers`. F18 (drop before `send_response`, no HEADERS) unchanged.
+- **Fix branch:** `fix/pending-push-cancel-drops-headers`
+- **Change:** On PP pop, if the child is `scheduled_reset`, `clear_queue` (drop HEADERS/DATA) then queue RST only.
+
 ### F93 — Drop/reset of reserved `pending_open` push never sends RST
 - **Severity:** Medium (protocol / cancellation): F92 sibling. After PP is written, a push child with no send slot is `queue_open`'d. Drop (`schedule_implicit_reset`) or explicit `send_reset` with no slot hit `abort_closed_pending_open`, which treated every `pending_open` as never-advertised idle and discarded locally. Peer kept a reserved stream with no HEADERS and no RST.
 - **Evidence:** max=1; PP(2)+HEADERS(2) occupy the slot; PP(4) on the wire; drop the stream-4 send handle. Pre-fix: 2s timeout, no RST. Post-fix: `RST_STREAM(4) CANCEL`. Regression `drop_pending_open_push_sends_reset`. Client-request `pending_open` still aborts locally (RST on idle is PROTOCOL_ERROR). F18 (cancel while still `pending_push`) unchanged.

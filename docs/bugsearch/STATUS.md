@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-14  
-**Branch tip:** `experimental/bugsearch` (F93)
+**Branch tip:** `experimental/bugsearch` (F94)
 
 ## Current focus
-F93: cancel of a reserved push sitting in `pending_open` discarded locally and never sent RST.
+F94: `send_response` then cancel before PP flush still emitted HEADERS (opened over max concurrent).
 
 ## Last actions
-1. F92 allowed peer WU/RST on reserved `pending_open`. Local cancel still used the idle abort.
-2. `abort_closed_pending_open` dropped HEADERS and set_reset with no wire RST (RST on idle is PROTOCOL_ERROR — true only for unsent client requests).
-3. After PP, the peer sees reserved; RFC §5.1 allows RST without a concurrency slot.
-4. Fix: server `pending_open` abort queues RST (scheduled or explicit reason).
-5. Regression: `drop_pending_open_push_sends_reset` (fails pre-fix: 2s, no RST).
+1. F18 RST'd a `pending_push` cancel after PP, but only when no HEADERS were queued.
+2. `send_response` queues HEADERS; drop schedules RESET while still `pending_push`.
+3. PP pop `pending_send.push`'d the child without clearing HEADERS and without `inc_num_send_streams`.
+4. Fix: on scheduled-reset PP pop, `clear_queue` then RST only.
+5. Regression: `drop_push_after_response_before_pp_flush_sends_reset_not_headers`.
 
 ## Next recommended step
-1. Package PRs for F3–F93.
+1. Package PRs for F3–F94.
 2. Residual #848 API ready-at-max-open.
 3. Optional test hygiene: S4 stale tests + F29 drain loop.
 4. Next search: fuzz vs Go/nghttp2 or other hang/FC.

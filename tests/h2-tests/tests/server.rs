@@ -1084,6 +1084,79 @@ async fn drop_pending_open_push_sends_reset() {
     join(client, srv).await;
 }
 
+/// `send_response` then drop before PP flushes leaves HEADERS queued on a
+/// `pending_push` child. PP pop used to `pending_send.push` without clearing
+/// those HEADERS or taking a send slot — the cancelled push opened on the
+/// wire and could exceed MAX_CONCURRENT_STREAMS (F94).
+#[tokio::test]
+async fn drop_push_after_response_before_pp_flush_sends_reset_not_headers() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(1))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/a.css"),
+            )
+            .await;
+        client.recv_frame(frames::headers(2).response(200)).await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 4).request("GET", "https://example.com/b.css"),
+            )
+            .await;
+        let rst = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::reset(4).cancel()),
+        )
+        .await
+        .expect("expected RST(4), not HEADERS: cancelled push was opened");
+        let _ = rst;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        let mut push1 = stream
+            .push_request(
+                http::Request::builder()
+                    .method("GET")
+                    .uri("https://example.com/a.css")
+                    .body(())
+                    .unwrap(),
+            )
+            .unwrap();
+        let _send2 = push1.send_response(Response::new(()), false).unwrap();
+
+        let mut push2 = stream
+            .push_request(
+                http::Request::builder()
+                    .method("GET")
+                    .uri("https://example.com/b.css")
+                    .body(())
+                    .unwrap(),
+            )
+            .unwrap();
+        let send4 = push2.send_response(Response::new(()), false).unwrap();
+        drop(send4);
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Dropping a promised push stream before `send_response` must still RST after
 /// PUSH_PROMISE is on the wire. While `is_pending_push`, `schedule_send` is a
 /// no-op, so cancel had to be deferred until PUSH_PROMISE is flushed.

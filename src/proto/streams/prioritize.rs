@@ -967,6 +967,12 @@ impl Prioritize {
                             // pending_push (schedule_send is a no-op while
                             // is_pending_push — RST would never leave otherwise).
                             if pushed.state.is_scheduled_reset() {
+                                // PP advertised the id; RST is legal on reserved.
+                                // Do not flush queued HEADERS — that would open
+                                // the stream (and can exceed MAX_CONCURRENT_STREAMS
+                                // because this branch does not take a send slot).
+                                self.clear_queue(buffer, &mut pushed, counts, &mut None);
+                                self.reclaim_all_capacity(&mut pushed, counts, &mut None);
                                 self.pending_send.push(&mut pushed);
                             } else if !pushed.pending_send.is_empty() {
                                 // Transition stream from pending_push to open /
