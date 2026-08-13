@@ -18,6 +18,7 @@
 | `fix/send-reset-pending-open-at-max-zero` | F12 |
 | `fix/abort-reset-pending-open-when-max-zero` | F13 |
 | `fix/recv-drop-releases-stream-window` | F14 |
+| `fix/pending-open-refused-when-max-zero` | F15 |
 
 ## experimental contains
-F1–F14, I1–I2, deadlock stress test, docs.
+F1–F15, I1–I2, deadlock stress test, docs.

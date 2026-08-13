@@ -15,6 +15,14 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F10):** increases applied when SETTINGS is written; decreases still on ACK (peer must shrink first).
 - **Verdict:** F10 is an h2-local race fix, not a Go/nghttp2 mismatch.
 
+### Connection WINDOW_UPDATE recovery threshold
+- **Go (`inflow.add`):** send WINDOW_UPDATE when unsent ≥ 4KiB **or** unsent would at least double the peer’s current window (`inflowMinRefresh = 4<<10`).
+- **Rust h2:** send when unclaimed ≥ half of peer’s current window (`window_size/2`), or any unclaimed if window ≤ 0 (SETTINGS decrease).
+- **Verdict:** both batch updates; different heuristics (fixed 4KiB+double vs 50% ratio). Spec interpretation / performance tradeoff, not a correctness bug.
+
+### Receiver drops interest mid-stream
+- **Rust h2:** `RecvStream` drop does not RST (may still send on `SendStream`); F14 restores stream+conn FC for ignored DATA. Full ref drop → implicit CANCEL (or server NO_ERROR after complete response).
+- **Planned:** further compare NO_ERROR vs CANCEL timing to Go/nghttp2 if new reports appear.
+
 ## Planned comparisons
-- Connection window recovery thresholds (h2 uses 1/2 unclaimed ratio) vs nghttp2/Go auto window update strategies.
-- Behavior when receiver drops interest mid-stream (RST_STREAM NO_ERROR / CANCEL) vs stream WINDOW_UPDATE suppression.
+- (none active beyond residual #848 API design)
