@@ -278,6 +278,12 @@
 - **Fix branch:** `fix/reject-outbound-content-length-no-content`
 - **Change:** Reject CL on 204 and on all 1xx informational frames; reject non-zero CL on 205 (`is_content_length_zero` helper). Receive path still allows peer CL on 204/304 per RFC 9113 §8.1.1 (F43 exception).
 
+### F50 — Outbound non-zero Content-Length with END_STREAM
+- **Severity:** Medium (protocol / API): RFC 9113 §8.1.1: a message with END_STREAM on HEADERS and a non-zero Content-Length is malformed (body length cannot match). Receive already rejected this (`reject_none_zero_content_length_header_with_end_stream`); generate path still emitted the illegal HEADERS.
+- **Evidence:** `send_request(POST + CL:5, eos=true)` and `send_response(200 + CL:10, true)` pre-fix Ok; post-fix `UserError::MalformedHeaders`. Clean follow-up request/response still works. 304 exempt (representation length with empty body). Regressions: `send_request_rejects_nonzero_content_length_with_end_stream`, `send_response_rejects_nonzero_content_length_with_end_stream`.
+- **Fix branch:** `fix/reject-outbound-cl-with-end-stream`
+- **Change:** `has_nonzero_content_length` helper; reject on `send_request` and `send_response` when `end_of_stream && status != 304`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

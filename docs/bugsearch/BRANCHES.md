@@ -53,6 +53,7 @@
 | `fix/reject-send-no-content-without-end-stream` | F47 |
 | `fix/reject-informational-after-final` | F48 |
 | `fix/reject-outbound-content-length-no-content` | F49 |
+| `fix/reject-outbound-cl-with-end-stream` | F50 |
 
 ## experimental contains
-F1–F49, I1–I2, deadlock stress test, docs.
+F1–F50, I1–I2, deadlock stress test, docs.

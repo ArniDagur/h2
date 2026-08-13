@@ -125,5 +125,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F49):** generate rejects CL on 1xx/204 and non-zero CL on 205; receive still allows peer CL on 204/304 (existing exception).
 - **Verdict:** F49 is sender MUST NOT enforcement; asymmetric with receive by design (interop vs self-generation).
 
+### Non-zero Content-Length with END_STREAM
+- **RFC 9113 §8.1.1:** HEADERS+EOS with non-zero CL is malformed (body length cannot match).
+- **Rust h2 (pre-F50):** receive rejected; generate still allowed `send_request`/`send_response` to emit illegal frames.
+- **Rust h2 (F50):** generate rejects; 304 exempt (representation CL with empty body).
+- **Verdict:** F50 closes generate/receive asymmetry for general messages.
+
 ## Planned comparisons
 - Residual #848 API design.
