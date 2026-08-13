@@ -306,3 +306,8 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 
 ## Planned comparisons
 - Residual #848 API design.
+
+### WINDOW_UPDATE increment 0
+- **RFC 9113 §6.9.1:** increment 0 on stream 0 is a connection PROTOCOL_ERROR; on a stream it MAY be a stream PROTOCOL_ERROR.
+- **Rust h2:** `WindowUpdate::load` rejects increment 0 for any stream id → connection error.
+- **Verdict:** allowed (MUST on conn; MAY on stream). Not a fix-worthy mismatch.

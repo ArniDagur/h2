@@ -100,6 +100,11 @@
 - Invalid `:path` form (no leading `/`, absolute-form): already rejected via `http::uri::PathAndQuery` / builder.
 - #699 Cookie concatenation (RFC 9113 §8.1.2.5): ecosystem uses get_all; design/interop not a silent correctness bug.
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
+- WINDOW_UPDATE increment 0: frame load rejects both stream 0 and N as connection InvalidWindowUpdateValue. RFC MUST conn-error on stream 0; MAY stream-error on N — match is valid.
+- `poll_trailers` parks while DATA is at `pending_recv` head (test `poll_trailers_before_data_is_consumed`); `poll_data` notify_recv unparks. Trailers-only after DATA+EOS with no further frames never wakes — drain-data-then-trailers API, not a library missed wakeup.
+- Second refuse while `refused` is Some asserts; poll_ready sends RST before the next `poll_next`, and CodecFull stops reads — same poll-ordering class as SETTINGS ACK.
+- `try_assign_capacity` does not skip `is_pending_push` (only `pending_open`). PP is not flow-controlled; next `poll_complete` writes PP then the child can send. Not a hang.
+- SETTINGS MAX_FRAME_SIZE outside 2^14..2^24-1 already InvalidSettingValue (no zero-length DATA spin).
 
 ## High priority next
 1. Package PRs for F3–F87.
