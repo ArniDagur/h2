@@ -266,7 +266,19 @@ impl Recv {
         // Informational (1xx) HEADERS must not set stream.content_length — a
         // Content-Length on 100 Continue would make a later final body with no
         // CL fail ensure_content_length_zero (or accept the wrong length).
-        if !frame.is_informational() && !stream.content_length.is_head() {
+        //
+        // Traditional CONNECT: successful 2xx responses MUST ignore Content-
+        // Length (RFC 9110 §9.3.6 / RFC 9113 §8.5). Tunnel DATA would otherwise
+        // be framed against the advertised length and get PROTOCOL_ERROR.
+        let skip_content_length = stream.content_length.is_head()
+            || (stream.is_connect
+                && frame
+                    .pseudo()
+                    .status
+                    .map(|s| s.is_success())
+                    .unwrap_or(false));
+
+        if !frame.is_informational() && !skip_content_length {
             use super::stream::ContentLength;
             use http::header;
 

@@ -790,6 +790,121 @@ async fn http_2_connect_request_omit_scheme_and_path_fields() {
     join(srv, h2).await;
 }
 
+/// RFC 9110 §9.3.6: traditional CONNECT must not include Content-Length.
+#[tokio::test]
+async fn send_connect_rejects_content_length() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        // Only the clean CONNECT after reject should appear.
+        srv.recv_frame(
+            frames::headers(1)
+                .pseudo(frame::Pseudo {
+                    method: Method::CONNECT.into(),
+                    authority: util::byte_str("tunnel.example.com:443").into(),
+                    ..Default::default()
+                })
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let bad = Request::builder()
+            .version(Version::HTTP_2)
+            .method(Method::CONNECT)
+            .uri("https://tunnel.example.com:443/")
+            .header("content-length", "0")
+            .body(())
+            .unwrap();
+        let err = client
+            .send_request(bad, true)
+            .expect_err("CONNECT with Content-Length must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        let ok = Request::builder()
+            .version(Version::HTTP_2)
+            .method(Method::CONNECT)
+            .uri("https://tunnel.example.com:443/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(ok, true).expect("clean CONNECT");
+        let resp = conn.drive(resp).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, h2).await;
+}
+
+/// Successful CONNECT response Content-Length must be ignored so tunnel DATA
+/// is not framed against a representation length (RFC 9110 §9.3.6).
+#[tokio::test]
+async fn connect_response_content_length_is_ignored() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .pseudo(frame::Pseudo {
+                    method: Method::CONNECT.into(),
+                    authority: util::byte_str("tunnel.example.com:443").into(),
+                    ..Default::default()
+                })
+                .eos(),
+        )
+        .await;
+        // Illegal but peer-generated CL on 2xx CONNECT — client must ignore.
+        srv.send_frame(
+            frames::headers(1)
+                .response(200)
+                .field("content-length", 5),
+        )
+        .await;
+        // Tunnel data longer than the advertised CL must still be accepted.
+        srv.send_frame(frames::data(1, &b"hello world"[..]).eos())
+            .await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .version(Version::HTTP_2)
+            .method(Method::CONNECT)
+            .uri("https://tunnel.example.com:443/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("CONNECT response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let mut body = resp.into_body();
+        let chunk = conn
+            .drive(body.data())
+            .await
+            .expect("tunnel data")
+            .expect("tunnel ok");
+        assert_eq!(chunk.as_ref(), b"hello world");
+        assert!(conn.drive(body.data()).await.is_none());
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, h2).await;
+}
+
 #[test]
 #[ignore]
 fn request_with_h1_version() {}

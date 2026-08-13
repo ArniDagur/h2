@@ -1790,6 +1790,12 @@ impl proto::Peer for Peer {
             }
         }
 
+        // RFC 9110 §9.3.6: traditional CONNECT (no :protocol) must not include
+        // Content-Length. Extended CONNECT may carry a request body.
+        if is_connect && !has_protocol && fields.contains_key(http::header::CONTENT_LENGTH) {
+            malformed!("malformed headers: Content-Length on CONNECT request");
+        }
+
         let mut request = match b.body(()) {
             Ok(request) => request,
             Err(e) => {

@@ -342,6 +342,13 @@ where
             return Err(UserError::MalformedHeaders.into());
         }
 
+        // Traditional CONNECT (no extended :protocol) must not carry
+        // Content-Length (RFC 9110 §9.3.6). Extended CONNECT may have a body.
+        let is_connect = *request.method() == Method::CONNECT && protocol.is_none();
+        if is_connect && request.headers().contains_key(http::header::CONTENT_LENGTH) {
+            return Err(UserError::MalformedHeaders.into());
+        }
+
         let is_head = *request.method() == Method::HEAD;
         let stream_id = me.actions.send.ensure_next_stream_id()?;
         let headers =
@@ -358,6 +365,9 @@ where
 
         if is_head {
             stream.content_length = ContentLength::Head;
+        }
+        if is_connect {
+            stream.is_connect = true;
         }
 
         let mut stream = me.store.insert(stream.id, stream);

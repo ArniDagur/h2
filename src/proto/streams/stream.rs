@@ -131,6 +131,11 @@ pub(super) struct Stream {
     /// Validate content-length headers
     pub content_length: ContentLength,
 
+    /// Traditional CONNECT (no extended `:protocol`). Successful 2xx responses
+    /// must ignore Content-Length (RFC 9110 §9.3.6 / RFC 9113 §8.5) so tunnel
+    /// DATA is not framed against a representation length.
+    pub is_connect: bool,
+
     /// Number of informational (1xx) HEADERS frames received on this stream.
     /// Capped by `DEFAULT_MAX_RECV_INFORMATIONAL` to limit memory from floods.
     pub recv_informational_count: u8,
@@ -217,6 +222,7 @@ impl Stream {
             push_task: None,
             pending_push_promises: store::Queue::new(),
             content_length: ContentLength::Omitted,
+            is_connect: false,
             recv_informational_count: 0,
         }
     }

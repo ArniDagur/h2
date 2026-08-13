@@ -2360,6 +2360,43 @@ async fn reject_request_missing_path_pseudo() {
     join(client, srv).await;
 }
 
+/// RFC 9110 §9.3.6: traditional CONNECT must not include Content-Length.
+#[tokio::test]
+async fn reject_connect_with_content_length() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::CONNECT.into(),
+                        authority: util::byte_str("tunnel.example.com:443").into(),
+                        ..Default::default()
+                    })
+                    .field("content-length", "0")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        assert!(
+            srv.next().await.is_none(),
+            "CONNECT with Content-Length must not be accepted"
+        );
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9113 §8.5 / §8.3.1: CONNECT requests MUST include :authority.
 #[tokio::test]
 async fn reject_connect_missing_authority_pseudo() {
