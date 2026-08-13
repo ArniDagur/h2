@@ -452,15 +452,16 @@ impl Prioritize {
         let total_requested = stream.requested_send_capacity;
 
         // Total requested should never go below actual assigned
-        // (Note: the window size can go lower than assigned)
+        // (Note: the window size can go lower than assigned after SETTINGS)
         debug_assert!(stream.send_flow.available() <= total_requested as usize);
 
-        // The amount of additional capacity that the stream requests.
-        // Don't assign more than the window has available!
-        let additional = cmp::min(
-            total_requested - stream.send_flow.available().as_size(),
-            // Can't assign more than what is available
-            stream.send_flow.window_size() - stream.send_flow.available().as_size(),
+        // Additional capacity to assign: limited by request and peer window.
+        // Use saturating_sub: when available already exceeds window (or request),
+        // plain u32 subtraction wraps and can over-claim connection capacity.
+        let additional = additional_send_capacity(
+            total_requested,
+            stream.send_flow.available().as_size(),
+            stream.send_flow.window_size(),
         );
         let span = tracing::trace_span!("try_assign_capacity", ?stream.id);
         let _e = span.enter();
@@ -1126,5 +1127,46 @@ impl<B: Buf> fmt::Debug for Prioritized<B> {
             .field("end_of_stream", &self.end_of_stream)
             .field("stream", &self.stream)
             .finish()
+    }
+}
+
+/// How much more connection capacity may be assigned to a stream.
+///
+/// `available` is already assigned to the stream; `window` is the peer stream
+/// window (`as_size`, so negative peer windows are 0). Saturating arithmetic
+/// avoids u32 wrap when available already exceeds window or requested (e.g.
+/// briefly after SETTINGS decrease before reclaim).
+fn additional_send_capacity(
+    requested: WindowSize,
+    available: WindowSize,
+    window: WindowSize,
+) -> WindowSize {
+    cmp::min(
+        requested.saturating_sub(available),
+        window.saturating_sub(available),
+    )
+}
+
+#[cfg(test)]
+mod additional_send_capacity_tests {
+    use super::*;
+
+    #[test]
+    fn assigns_up_to_request_and_window() {
+        assert_eq!(additional_send_capacity(100, 20, 80), 60);
+        assert_eq!(additional_send_capacity(50, 20, 80), 30);
+        assert_eq!(additional_send_capacity(100, 0, 0), 0);
+    }
+
+    #[test]
+    fn zero_when_available_exceeds_window() {
+        // Pre-fix: 0u32 - 10 wraps to ~4e9 and would over-assign.
+        assert_eq!(additional_send_capacity(100, 10, 0), 0);
+        assert_eq!(additional_send_capacity(100, 50, 40), 0);
+    }
+
+    #[test]
+    fn zero_when_available_exceeds_requested() {
+        assert_eq!(additional_send_capacity(10, 20, 100), 0);
     }
 }

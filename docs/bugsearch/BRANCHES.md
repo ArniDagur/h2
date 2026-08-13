@@ -68,6 +68,7 @@
 | `fix/require-authority-or-host` | F62 |
 | `fix/reject-empty-content-length` | F63 |
 | `fix/te-trailers-case-insensitive` | F64 |
+| `fix/try-assign-saturating-sub` | F65 |
 
 ## experimental contains
-F1–F64, I1–I2, deadlock stress test, docs.
+F1–F65, I1–I2, deadlock stress test, docs.

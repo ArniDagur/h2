@@ -368,6 +368,12 @@
 - **Fix branch:** `fix/te-trailers-case-insensitive`
 - **Change:** `eq_ignore_ascii_case(b"trailers")` in load_hpack, `Send::check_headers`, and push convert.
 
+### F65 — `try_assign_capacity` u32 wrap when available exceeds window
+- **Severity:** Medium (FC): `additional = min(requested - available, window - available)` used plain `u32` subtraction. If `available > window` (peer window floored to 0 after SETTINGS decrease while capacity still assigned, or any invariant slip), `window - available` wraps to a huge value and connection capacity can be over-claimed onto the stream.
+- **Evidence:** Unit tests on `additional_send_capacity`: when available > window, result is 0 (pre-fix would wrap). SETTINGS reclaim normally prevents this; saturating math makes the path safe.
+- **Fix branch:** `fix/try-assign-saturating-sub`
+- **Change:** `additional_send_capacity` helper with `saturating_sub` for both terms.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
