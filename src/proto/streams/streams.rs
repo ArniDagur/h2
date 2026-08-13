@@ -777,7 +777,12 @@ impl Inner {
         if id.is_zero() {
             self.actions
                 .send
-                .recv_connection_window_update(frame, &mut self.store, &mut self.counts)
+                .recv_connection_window_update(
+                    frame,
+                    &mut self.store,
+                    &mut self.counts,
+                    &mut self.actions.task,
+                )
                 .map_err(Error::library_go_away)?;
         } else {
             // The remote may send window updates for streams that the local now
@@ -1522,9 +1527,12 @@ impl<B> StreamRef<B> {
 
         let mut stream = me.store.resolve(self.opaque.key);
 
-        me.actions
-            .send
-            .reserve_capacity(capacity, &mut stream, &mut me.counts)
+        me.actions.send.reserve_capacity(
+            capacity,
+            &mut stream,
+            &mut me.counts,
+            &mut me.actions.task,
+        )
     }
 
     /// Returns the stream's current send capacity.

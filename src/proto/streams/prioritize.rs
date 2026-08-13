@@ -218,12 +218,12 @@ impl Prioritize {
 
             // `try_assign_capacity` will queue the stream to `pending_capacity` if the capcaity
             // cannot be assigned at the time it is called.
-            self.try_assign_capacity(stream);
+            self.try_assign_capacity(stream, task);
         }
 
         if frame.is_end_stream() {
             stream.state.send_close();
-            self.reserve_capacity(0, stream, counts);
+            self.reserve_capacity(0, stream, counts, task);
         }
 
         tracing::trace!(
@@ -259,6 +259,7 @@ impl Prioritize {
         capacity: WindowSize,
         stream: &mut store::Ptr,
         counts: &mut Counts,
+        task: &mut Option<Waker>,
     ) {
         let span = tracing::trace_span!(
             "reserve_capacity",
@@ -296,7 +297,7 @@ impl Prioritize {
                     let _res = stream.send_flow.claim_capacity(diff);
                     debug_assert!(_res.is_ok());
 
-                    self.assign_connection_capacity(diff, stream, counts);
+                    self.assign_connection_capacity(diff, stream, counts, task);
                 }
             }
             Ordering::Greater => {
@@ -312,7 +313,7 @@ impl Prioritize {
                 // Try to assign additional capacity to the stream. If none is
                 // currently available, the stream will be queued to receive some
                 // when more becomes available.
-                self.try_assign_capacity(stream);
+                self.try_assign_capacity(stream, task);
             }
         }
     }
@@ -321,6 +322,7 @@ impl Prioritize {
         &mut self,
         inc: WindowSize,
         stream: &mut store::Ptr,
+        task: &mut Option<Waker>,
     ) -> Result<(), Reason> {
         let span = tracing::trace_span!(
             "recv_stream_window_update",
@@ -341,7 +343,7 @@ impl Prioritize {
 
         // If the stream is waiting on additional capacity, then this will
         // assign it (if available on the connection) and notify the producer
-        self.try_assign_capacity(stream);
+        self.try_assign_capacity(stream, task);
 
         Ok(())
     }
@@ -351,31 +353,42 @@ impl Prioritize {
         inc: WindowSize,
         store: &mut Store,
         counts: &mut Counts,
+        task: &mut Option<Waker>,
     ) -> Result<(), Reason> {
         // Update the connection's window
         self.flow.inc_window(inc)?;
 
-        self.assign_connection_capacity(inc, store, counts);
+        self.assign_connection_capacity(inc, store, counts, task);
         self.debug_assert_send_capacity_conservation(store);
         Ok(())
     }
 
     /// Reclaim all capacity assigned to the stream and re-assign it to the
     /// connection
-    pub fn reclaim_all_capacity(&mut self, stream: &mut store::Ptr, counts: &mut Counts) {
+    pub fn reclaim_all_capacity(
+        &mut self,
+        stream: &mut store::Ptr,
+        counts: &mut Counts,
+        task: &mut Option<Waker>,
+    ) {
         let available = stream.send_flow.available().as_size();
         if available > 0 {
             // TODO: proper error handling
             let _res = stream.send_flow.claim_capacity(available);
             debug_assert!(_res.is_ok());
             // Re-assign all capacity to the connection
-            self.assign_connection_capacity(available, stream, counts);
+            self.assign_connection_capacity(available, stream, counts, task);
         }
     }
 
     /// Reclaim just reserved capacity, not buffered capacity, and re-assign
     /// it to the connection
-    pub fn reclaim_reserved_capacity(&mut self, stream: &mut store::Ptr, counts: &mut Counts) {
+    pub fn reclaim_reserved_capacity(
+        &mut self,
+        stream: &mut store::Ptr,
+        counts: &mut Counts,
+        task: &mut Option<Waker>,
+    ) {
         // only reclaim reserved capacity that isn't already buffered
         if stream.send_flow.available().as_size() as usize > stream.buffered_send_data {
             let reserved =
@@ -388,7 +401,7 @@ impl Prioritize {
                 .claim_capacity(reserved)
                 .expect("window size should be greater than reserved");
 
-            self.assign_connection_capacity(reserved, stream, counts);
+            self.assign_connection_capacity(reserved, stream, counts, task);
         }
     }
 
@@ -407,6 +420,7 @@ impl Prioritize {
         inc: WindowSize,
         store: &mut R,
         counts: &mut Counts,
+        task: &mut Option<Waker>,
     ) where
         R: Resolve,
     {
@@ -436,13 +450,13 @@ impl Prioritize {
                 // Try to assign capacity to the stream. This will also re-queue the
                 // stream if there isn't enough connection level capacity to fulfill
                 // the capacity request.
-                self.try_assign_capacity(stream);
+                self.try_assign_capacity(stream, task);
             })
         }
     }
 
     /// Request capacity to send data
-    fn try_assign_capacity(&mut self, stream: &mut store::Ptr) {
+    fn try_assign_capacity(&mut self, stream: &mut store::Ptr, task: &mut Option<Waker>) {
         // Streams over the max concurrent count should not have capacity assign to avoid starving the connection
         // capacity for open streams
         if stream.is_pending_open {
@@ -538,6 +552,11 @@ impl Prioritize {
             // debug_assert!(!stream.pending_send.is_empty());
 
             self.pending_send.push(stream);
+            // User-thread reclaim (`reserve_capacity` decrease) can schedule
+            // another stream while the connection is parked on read.
+            if let Some(task) = task.take() {
+                task.wake();
+            }
         }
     }
 
@@ -576,7 +595,7 @@ impl Prioritize {
 
             if let Some(mut stream) = self.pop_pending_open(store, counts) {
                 self.pending_send.push_front(&mut stream);
-                self.try_assign_capacity(&mut stream);
+                self.try_assign_capacity(&mut stream, &mut None);
             }
 
             match self.pop_frame(buffer, store, max_frame_len, counts) {
@@ -823,7 +842,7 @@ impl Prioritize {
                                 if reason != Reason::NO_ERROR {
                                     stream.pending_send.push_front(buffer, frame.into());
                                     self.clear_queue(buffer, &mut stream, counts);
-                                    self.reclaim_all_capacity(&mut stream, counts);
+                                    self.reclaim_all_capacity(&mut stream, counts, &mut None);
                                     self.pending_send.push(&mut stream);
                                     continue;
                                 }
@@ -1076,7 +1095,7 @@ impl Prioritize {
 
             // Never opened on the wire: discard any leftover frames and release.
             self.clear_queue(buffer, &mut stream, counts);
-            self.reclaim_all_capacity(&mut stream, counts);
+            self.reclaim_all_capacity(&mut stream, counts, &mut None);
             if let Some(reason) = stream.state.get_scheduled_reset() {
                 stream.set_reset(reason, Initiator::Library);
             } else if !stream.state.is_reset() {

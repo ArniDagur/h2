@@ -297,7 +297,7 @@ impl Send {
                     "send_reset -- pending_open with no concurrency slot; discard locally"
                 );
                 self.prioritize.clear_queue(buffer, stream, counts);
-                self.prioritize.reclaim_all_capacity(stream, counts);
+                self.prioritize.reclaim_all_capacity(stream, counts, task);
                 // Wake so buffer_pending can abort this stream out of pending_open.
                 if let Some(task) = task.take() {
                     task.wake();
@@ -319,7 +319,7 @@ impl Send {
         tracing::trace!("send_reset -- queueing; frame={:?}", frame);
         self.prioritize
             .queue_frame(frame.into(), buffer, stream, task);
-        self.prioritize.reclaim_all_capacity(stream, counts);
+        self.prioritize.reclaim_all_capacity(stream, counts, task);
     }
 
     pub fn schedule_implicit_reset(
@@ -336,7 +336,7 @@ impl Send {
 
         stream.state.set_scheduled_reset(reason);
 
-        self.prioritize.reclaim_reserved_capacity(stream, counts);
+        self.prioritize.reclaim_reserved_capacity(stream, counts, task);
         // pending_open streams are not send-ready; still wake the connection so
         // `buffer_pending` can abort them (never opened on the wire).
         // pending_push: schedule_send is also a no-op until PUSH_PROMISE is
@@ -401,7 +401,7 @@ impl Send {
             .queue_frame(frame.into(), buffer, stream, task);
 
         // Release any excess capacity
-        self.prioritize.reserve_capacity(0, stream, counts);
+        self.prioritize.reserve_capacity(0, stream, counts, task);
 
         Ok(())
     }
@@ -438,8 +438,10 @@ impl Send {
         capacity: WindowSize,
         stream: &mut store::Ptr,
         counts: &mut Counts,
+        task: &mut Option<Waker>,
     ) {
-        self.prioritize.reserve_capacity(capacity, stream, counts)
+        self.prioritize
+            .reserve_capacity(capacity, stream, counts, task)
     }
 
     pub fn poll_capacity(
@@ -496,9 +498,14 @@ impl Send {
         frame: frame::WindowUpdate,
         store: &mut Store,
         counts: &mut Counts,
+        task: &mut Option<Waker>,
     ) -> Result<(), Reason> {
-        self.prioritize
-            .recv_connection_window_update(frame.size_increment(), store, counts)
+        self.prioritize.recv_connection_window_update(
+            frame.size_increment(),
+            store,
+            counts,
+            task,
+        )
     }
 
     pub fn recv_stream_window_update<B>(
@@ -509,7 +516,7 @@ impl Send {
         counts: &mut Counts,
         task: &mut Option<Waker>,
     ) -> Result<(), Reason> {
-        if let Err(e) = self.prioritize.recv_stream_window_update(sz, stream) {
+        if let Err(e) = self.prioritize.recv_stream_window_update(sz, stream, task) {
             tracing::debug!("recv_stream_window_update !!; err={:?}", e);
 
             self.send_reset(
@@ -555,7 +562,8 @@ impl Send {
     ) {
         // Clear all pending outbound frames
         self.prioritize.clear_queue(buffer, stream, counts);
-        self.prioritize.reclaim_all_capacity(stream, counts);
+        self.prioritize
+            .reclaim_all_capacity(stream, counts, &mut None);
     }
 
     pub fn apply_remote_settings<B>(
@@ -664,7 +672,7 @@ impl Send {
                     })?;
 
                     self.prioritize
-                        .assign_connection_capacity(total_reclaimed, store, counts);
+                        .assign_connection_capacity(total_reclaimed, store, counts, task);
                     self.prioritize
                         .debug_assert_send_capacity_conservation(store);
                 }

@@ -3657,3 +3657,87 @@ async fn drop_recv_stream_releases_stream_window_update() {
 
     join(srv, client).await;
 }
+
+/// Reclaiming reserved connection capacity onto another stream that already
+/// buffered DATA must wake the connection task. Pre-fix `reserve_capacity`
+/// decrease called `assign_connection_capacity` → `pending_send` with no
+/// `actions.task` wake; a parked connection never flushed the starved stream.
+#[tokio::test]
+async fn reserve_capacity_reclaim_wakes_connection_for_starved_send() {
+    use std::time::Duration;
+
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/hold"))
+            .await;
+        srv.recv_frame(frames::headers(3).request("POST", "https://example.com/send"))
+            .await;
+
+        // DATA for stream 3 must arrive after the holder releases reservation.
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            srv.recv_frame(frames::data(3, &b"starved"[..]).eos()),
+        )
+        .await
+        .expect("starved DATA not sent after reserve_capacity reclaim");
+
+        srv.send_frame(frames::headers(1).response(204).eos()).await;
+        srv.send_frame(frames::headers(3).response(204).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let hold = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/hold")
+            .body(())
+            .unwrap();
+        let (resp_hold, mut hold_stream) = client.send_request(hold, false).unwrap();
+
+        // Leave pending_open so reserve_capacity can assign connection window.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Claim the entire default connection window without sending DATA.
+        hold_stream.reserve_capacity(frame::DEFAULT_INITIAL_WINDOW_SIZE as usize);
+        let mut hold_stream =
+            util::wait_for_capacity(hold_stream, frame::DEFAULT_INITIAL_WINDOW_SIZE as usize).await;
+
+        let send = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/send")
+            .body(())
+            .unwrap();
+        let (resp_send, mut send_stream) = client.send_request(send, false).unwrap();
+
+        // Buffer DATA while connection capacity is held by `hold`. HEADERS can
+        // still go out; DATA waits on pending_capacity.
+        send_stream
+            .send_data(Bytes::from_static(b"starved"), true)
+            .unwrap();
+
+        // Let the connection task flush HEADERS and park on read.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Reclaim: capacity should move to the starved stream and wake write.
+        hold_stream.reserve_capacity(0);
+
+        let _ = resp_send.await.expect("send response");
+        drop(hold_stream);
+        let _ = resp_hold.await;
+    };
+
+    join(srv, client).await;
+}
