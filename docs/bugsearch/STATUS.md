@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F13: reset `pending_open` streams stuck after SETTINGS max→0 (F12 residual).
+F14: RecvStream drop / `!is_recv` ignored DATA only restored connection FC.
 
 ## Last actions
-1. Confirmed **F13**: `send_reset` can queue HEADERS+RST while `can_inc` is true; if peer then sets `MAX_CONCURRENT_STREAMS=0` before open, the stream never left `pending_open`.
-2. Fix: `abort_closed_pending_open` also drops `is_reset` pending_open streams when `max_send_streams == 0`.
-3. Regression: `send_reset_pending_open_then_max_concurrent_streams_zero`.
+1. Confirmed **F14**: on `RecvStream` drop and post-drop ignored DATA, only connection capacity was re-credited — stream window was not consumed/released, so no stream WINDOW_UPDATE and over-window DATA could be accepted.
+2. Fix: `clear_recv_buffer` and `!is_recv` DATA path use `release_capacity` (conn + stream).
+3. Tests: unit `ignored_data_when_not_recv_consumes_stream_window`; integration `drop_recv_stream_releases_stream_window_update`; updated drop capacity test.
 
 ## Next recommended step
-1. Package PRs for F3–F13.
-2. Or residual #848: connection-level ready when open count is at max (API design).
-3. Or new hunt (recv WU when !is_recv mid-stream, connection window thresholds).
+1. Package PRs for F3–F14.
+2. Or residual #848 API design.
+3. Or connection window recovery threshold vs Go/nghttp2.
 
 ## Blockers
 None.

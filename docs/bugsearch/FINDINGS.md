@@ -58,6 +58,12 @@
 - **Fix branch:** `fix/abort-reset-pending-open-when-max-zero`
 - **Change:** `abort_closed_pending_open` also matches `is_reset && max_send_streams==0`.
 
+### F14 — RecvStream drop / ignored DATA skips stream flow control
+- **Severity:** Medium (correctness / interop): dropping `RecvStream` (or DATA after `is_recv=false`) only called `release_connection_capacity`. Stream window was not decreased then re-credited, so (1) peer never got stream WINDOW_UPDATE and could stall, (2) a peer could send past the real stream window without FLOW_CONTROL_ERROR.
+- **Evidence:** unit test `ignored_data_when_not_recv_consumes_stream_window`; integration `drop_recv_stream_releases_stream_window_update` expects stream+conn WU after drop of ~48KB unread body with `SendStream` held.
+- **Fix branch:** `fix/recv-drop-releases-stream-window`
+- **Change:** `!is_recv` path does stream `send_data` + `release_capacity`; `clear_recv_buffer` uses `release_capacity` for both levels.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
