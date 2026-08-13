@@ -100,6 +100,11 @@ impl<T, B> Codec<T, B> {
         self.inner.set_header_table_size(val)
     }
 
+    /// Raise the decoder header table size. No-op if `val` is not an increase.
+    pub fn set_recv_header_table_size_increase(&mut self, val: usize) {
+        self.inner.set_header_table_size_increase(val)
+    }
+
     /// Set the max header list size that can be received.
     pub fn set_max_recv_header_list_size(&mut self, val: usize) {
         self.inner.set_max_header_list_size(val);

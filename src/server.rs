@@ -391,6 +391,12 @@ where
             codec.set_max_recv_header_list_size(max as usize);
         }
 
+        // Peer may use the new decoder table as soon as it processes SETTINGS,
+        // which can race ahead of SETTINGS_ACK (same race as INITIAL_WINDOW_SIZE).
+        if let Some(sz) = builder.settings.header_table_size() {
+            codec.set_recv_header_table_size_increase(sz as usize);
+        }
+
         // Send initial settings frame.
         codec
             .buffer(builder.settings.clone().into())

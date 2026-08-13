@@ -166,6 +166,12 @@ impl Settings {
                     streams.apply_local_settings_window_increase(target)?;
                 }
 
+                // Same race for HEADER_TABLE_SIZE: the peer may emit a dynamic
+                // table size update on the next header block before ACKing.
+                if let Some(sz) = settings.header_table_size() {
+                    dst.set_recv_header_table_size_increase(sz as usize);
+                }
+
                 self.local = Local::WaitingAck(settings.clone());
             }
             Local::WaitingAck(..) | Local::Synced => {}

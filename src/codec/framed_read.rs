@@ -105,6 +105,12 @@ impl<T> FramedRead<T> {
     pub fn set_header_table_size(&mut self, val: usize) {
         self.hpack.queue_size_update(val);
     }
+
+    /// Raise the decoder table size. Decreases are ignored (apply on ACK).
+    #[inline]
+    pub fn set_header_table_size_increase(&mut self, val: usize) {
+        self.hpack.queue_size_increase(val);
+    }
 }
 
 fn calc_max_continuation_frames(header_max: usize, frame_max: usize) -> usize {

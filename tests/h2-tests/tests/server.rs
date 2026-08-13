@@ -114,6 +114,64 @@ async fn server_builder_header_table_size() {
     }
 }
 
+/// Client may emit a dynamic table size update on the first request HEADERS
+/// before ACKing the server's HEADER_TABLE_SIZE increase.
+#[tokio::test]
+async fn server_header_table_size_increase_applied_before_settings_ack() {
+    use std::time::Duration;
+
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client.write_preface().await;
+        client.send_frame(frames::settings()).await;
+        let frame = client.next().await.unwrap().unwrap();
+        match frame {
+            frame::Frame::Settings(s) => {
+                assert_eq!(s.header_table_size(), Some(10000));
+            }
+            other => panic!("expected server SETTINGS, got {:?}", other),
+        }
+        // Do not ACK the server's HEADER_TABLE_SIZE SETTINGS.
+        // Server will still ACK *our* default SETTINGS.
+        client.recv_frame(frames::settings_ack()).await;
+        // Size update 10000 then GET https://http2.akamai.com/
+        client
+            .send_bytes(&[
+                0, 0, 0x13, 1, 5, 0, 0, 0, 1, 0x3F, 0xF1, 0x4D, 0x82, 0x87, 0x41, 0x8B, 0x9D, 0x29,
+                0xAC, 0x4B, 0x8F, 0xA8, 0xE9, 0x19, 0x97, 0x21, 0xE9, 0x84,
+            ])
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let h2 = async move {
+        let mut srv = server::Builder::new()
+            .header_table_size(10000)
+            .handshake::<_, Bytes>(io)
+            .await
+            .expect("handshake");
+        let (req, mut stream) = tokio::time::timeout(Duration::from_secs(2), srv.next())
+            .await
+            .expect("timed out waiting for request")
+            .expect("connection closed")
+            .expect("HEADERS with table-size update before SETTINGS_ACK must not GOAWAY");
+        assert_eq!(req.method(), &http::Method::GET);
+        stream
+            .send_response(
+                http::Response::builder().status(200).body(()).unwrap(),
+                true,
+            )
+            .unwrap();
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, h2).await;
+}
+
 #[tokio::test]
 async fn serve_request() {
     h2_support::trace_init!();

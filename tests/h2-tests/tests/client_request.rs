@@ -2797,6 +2797,65 @@ async fn client_builder_header_table_size() {
     join(srv, h2).await;
 }
 
+/// Peer may use the advertised HEADER_TABLE_SIZE as soon as it processes
+/// SETTINGS — including on a header block that arrives before SETTINGS_ACK.
+/// Decoder must accept the table-size update without waiting for ACK (F82).
+#[tokio::test]
+async fn header_table_size_increase_applied_before_settings_ack() {
+    use std::time::Duration;
+
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        srv.send_frame(frames::settings()).await;
+        srv.read_preface().await.unwrap();
+        let frame = srv.next().await.unwrap().unwrap();
+        match frame {
+            frame::Frame::Settings(settings) => {
+                assert_eq!(settings.header_table_size(), Some(10000));
+            }
+            other => panic!("expected client SETTINGS, got {:?}", other),
+        }
+        // Do not ACK the client's HEADER_TABLE_SIZE SETTINGS.
+        // Client will still ACK *our* default SETTINGS.
+        srv.recv_frame(frames::settings_ack()).await;
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+
+        // HPACK dynamic table size update 10000 (0x3F 0xF1 0x4D) then :status 200.
+        srv.send_bytes(&[
+            0, 0, 4, // len
+            1,    // HEADERS
+            5,    // END_STREAM | END_HEADERS
+            0, 0, 0, 1, // stream 1
+            0x3F, 0xF1, 0x4D, 0x88,
+        ])
+        .await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::Builder::new()
+            .header_table_size(10000)
+            .handshake::<_, Bytes>(io)
+            .await
+            .unwrap();
+        let request = Request::get("https://example.com/").body(()).unwrap();
+        let (response, _) = client.send_request(request, true).unwrap();
+        let resp = tokio::time::timeout(Duration::from_secs(2), h2.drive(response))
+            .await
+            .expect("timed out waiting for response")
+            .expect("HEADERS with table-size update before SETTINGS_ACK must not GOAWAY");
+        assert_eq!(resp.status(), StatusCode::OK);
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn configured_max_concurrent_send_streams_and_update_it_based_on_empty_settings_frame() {
     h2_support::trace_init!();

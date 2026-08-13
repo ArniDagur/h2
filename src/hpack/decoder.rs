@@ -173,6 +173,16 @@ impl Decoder {
         self.max_size_update = Some(size);
     }
 
+    /// Raise the decoder max table size. No-op if `size` is not greater than
+    /// the current (or already queued) max. Decreases must wait for SETTINGS_ACK
+    /// so the peer can shrink first.
+    pub fn queue_size_increase(&mut self, size: usize) {
+        let current = self.max_size_update.unwrap_or(self.last_max_update);
+        if size > current {
+            self.queue_size_update(size);
+        }
+    }
+
     /// Decodes the headers found in the given buffer.
     pub fn decode<F>(
         &mut self,
@@ -862,6 +872,32 @@ mod test {
         let mut buf = BytesMut::new();
         de.decode(&mut Cursor::new(&mut buf), |_| ControlFlow::Continue(()))
             .unwrap();
+    }
+
+    #[test]
+    fn queue_size_increase_accepts_update_before_ack_applied() {
+        // SETTINGS increase is queued when the frame is written; the peer may
+        // send a table-size update on the next header block before ACK.
+        let mut de = Decoder::new(4096);
+        de.queue_size_increase(10000);
+        de.queue_size_increase(10000); // idempotent
+        de.queue_size_increase(2048); // decrease ignored until ACK
+
+        // 10000 encoded with 5-bit prefix (SizeUpdate): 0x3F, 0xF1, 0x4D
+        let mut buf = BytesMut::from(&[0x3F, 0xF1, 0x4D][..]);
+        de.decode(&mut Cursor::new(&mut buf), |_| ControlFlow::Continue(()))
+            .unwrap();
+        assert_eq!(de.table.max_size, 10000);
+    }
+
+    #[test]
+    fn size_update_above_current_max_is_rejected() {
+        let mut de = Decoder::new(4096);
+        let mut buf = BytesMut::from(&[0x3F, 0xF1, 0x4D][..]);
+        let err = de
+            .decode(&mut Cursor::new(&mut buf), |_| ControlFlow::Continue(()))
+            .unwrap_err();
+        assert_eq!(err, DecoderError::InvalidMaxDynamicSize);
     }
 
     #[test]
