@@ -20,6 +20,7 @@
 | `fix/recv-drop-releases-stream-window` | F14 |
 | `fix/pending-open-refused-when-max-zero` | F15 |
 | `fix/abort-buried-cancelled-pending-open` | F16 |
+| `fix/pending-open-cancel-without-pending-ref` | F17 |
 
 ## experimental contains
-F1–F16, I1–I2, deadlock stress test, docs.
+F1–F17, I1–I2, deadlock stress test, docs.

@@ -11,9 +11,10 @@
 - Healthy pending_open hang at max=0 → F15.
 - Buried cancelled pending_open (head-only abort) → F16.
 - Go #80759 client GOAWAY odd last-stream-id: h2 uses recv `last_processed_id` (even/0 for pure client) — not a match.
+- SendRequest::pending OpaqueStreamRef blocking cancel → F17.
 
 ## High priority next
-1. Package PRs for F3–F16.
+1. Package PRs for F3–F17.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

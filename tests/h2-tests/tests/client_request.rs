@@ -2770,3 +2770,118 @@ async fn cancel_buried_pending_open_is_aborted() {
 
     join(srv, client).await;
 }
+
+
+/// Dropping ResponseFuture + SendStream for a pending_open stream must cancel
+/// it even when SendRequest still remembers the stream id for backpressure.
+/// Otherwise the request is sent after the user cancelled.
+#[tokio::test]
+async fn drop_stream_handles_cancels_despite_sendrequest_pending() {
+    use std::task::Poll;
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let (cancel_done_tx, cancel_done_rx) = oneshot::channel();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(1))
+            .await;
+        assert_default_settings!(settings);
+
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/hold")
+                .eos(),
+        )
+        .await;
+
+        // Wait until client has dropped the pending_open stream handles.
+        cancel_done_rx.await.unwrap();
+
+        // Free the concurrency slot. Cancelled stream must not appear on wire.
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+
+        let frame = tokio::time::timeout(Duration::from_millis(400), srv.next()).await;
+        match frame {
+            Err(_) => {} // timeout: no more frames — good
+            Ok(None) => {}
+            Ok(Some(Ok(frame::Frame::GoAway(_)))) => {}
+            Ok(Some(Ok(frame::Frame::Headers(h)))) => {
+                panic!(
+                    "cancelled pending_open stream should not send HEADERS, got stream {:?}",
+                    h.stream_id()
+                );
+            }
+            Ok(Some(other)) => panic!("unexpected frame: {:?}", other),
+        }
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 1 {
+                let _ = futures::future::poll_fn(|cx| match Pin::new(&mut conn).poll(cx) {
+                    Poll::Ready(r) => Poll::Ready(r),
+                    Poll::Pending => Poll::Ready(Ok(())),
+                })
+                .await;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max=1");
+
+        let hold = Request::builder()
+            .uri("https://example.com/hold")
+            .body(())
+            .unwrap();
+        let (hold_resp, hold_send) = client.send_request(hold, true).unwrap();
+        client = conn.drive(client.ready()).await.unwrap();
+
+        // Queue second request into pending_open; handle records id for ready().
+        let cancel_me = Request::builder()
+            .uri("https://example.com/cancel-me")
+            .body(())
+            .unwrap();
+        let (resp, send) = client.send_request(cancel_me, true).unwrap();
+
+        // User cancels by dropping stream handles but keeps SendRequest.
+        drop(resp);
+        drop(send);
+
+        // Drive so abort_closed_pending_open runs while hold still fills max=1.
+        for _ in 0..16 {
+            let _ = futures::future::poll_fn(|cx| match Pin::new(&mut conn).poll(cx) {
+                Poll::Ready(r) => Poll::Ready(r),
+                Poll::Pending => Poll::Ready(Ok(())),
+            })
+            .await;
+            tokio::task::yield_now().await;
+        }
+
+        // hold (1) only; cancelled stream must be gone from the store.
+        assert_eq!(
+            client.num_wired_streams(),
+            1,
+            "dropping ResponseFuture+SendStream must free pending_open stream \
+             even when SendRequest still tracks its id for poll_ready"
+        );
+
+        cancel_done_tx.send(()).unwrap();
+
+        drop(hold_send);
+        let hold_resp = conn.drive(hold_resp).await.expect("hold response");
+        assert_eq!(hold_resp.status(), StatusCode::OK);
+
+        // poll_ready must not hang or panic when the tracked stream was cancelled.
+        client = conn.drive(client.ready()).await.unwrap();
+
+        drop(client);
+        let _ = tokio::time::timeout(Duration::from_millis(200), &mut conn).await;
+    };
+
+    join(srv, client).await;
+}

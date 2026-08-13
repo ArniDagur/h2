@@ -279,7 +279,7 @@ where
         &mut self,
         mut request: Request<()>,
         end_of_stream: bool,
-        pending: Option<&OpaqueStreamRef>,
+        pending: Option<StreamId>,
     ) -> Result<(StreamRef<B>, bool), SendError> {
         use super::stream::ContentLength;
         use http::Method;
@@ -309,14 +309,19 @@ where
             return Err(UserError::Rejected.into());
         }
 
-        // The `pending` argument is provided by the `Client`, and holds
-        // a store `Key` of a `Stream` that may have been not been opened
-        // yet.
+        // The `pending` argument is the stream id of a previous request that
+        // may still be in `pending_open`. If so, the Client must wait for
+        // `poll_ready` rather than enqueue another stream on this handle.
         //
-        // If that stream is still pending, the Client isn't allowed to
-        // queue up another pending stream. They should use `poll_ready`.
-        if let Some(stream) = pending {
-            if me.store.resolve(stream.key).is_pending_open {
+        // Looked up by id without holding a ref — a cancelled stream may
+        // already have been removed from the store.
+        if let Some(id) = pending {
+            if me
+                .store
+                .find_mut(&id)
+                .map(|s| s.is_pending_open)
+                .unwrap_or(false)
+            {
                 return Err(UserError::Rejected.into());
             }
         }
@@ -1072,7 +1077,7 @@ where
     pub fn poll_pending_open(
         &mut self,
         cx: &Context,
-        pending: Option<&OpaqueStreamRef>,
+        pending: Option<StreamId>,
     ) -> Poll<Result<(), crate::Error>> {
         let mut me = self.inner.lock().unwrap();
         let me = &mut *me;
@@ -1080,14 +1085,17 @@ where
         me.actions.ensure_no_conn_error()?;
         me.actions.send.ensure_next_stream_id()?;
 
-        if let Some(pending) = pending {
-            let mut stream = me.store.resolve(pending.key);
-            tracing::trace!("poll_pending_open; stream = {:?}", stream.is_pending_open);
-            if stream.is_pending_open {
-                // Park on open_task, not send_task: SendStream::poll_capacity /
-                // poll_reset also use send_task and would steal this waker.
-                stream.wait_open(cx);
-                return Poll::Pending;
+        if let Some(id) = pending {
+            // Stream may have been cancelled and removed while only the id was
+            // stored on SendRequest for backpressure (no ref).
+            if let Some(mut stream) = me.store.find_mut(&id) {
+                tracing::trace!("poll_pending_open; stream = {:?}", stream.is_pending_open);
+                if stream.is_pending_open {
+                    // Park on open_task, not send_task: SendStream::poll_capacity /
+                    // poll_reset also use send_task and would steal this waker.
+                    stream.wait_open(cx);
+                    return Poll::Pending;
+                }
             }
         }
         Poll::Ready(Ok(()))

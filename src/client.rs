@@ -174,7 +174,13 @@ use tracing::Instrument;
 /// [`Error`]: ../struct.Error.html
 pub struct SendRequest<B: Buf> {
     inner: proto::Streams<B, Peer>,
-    pending: Option<proto::OpaqueStreamRef>,
+    /// Stream id of a request still in `pending_open`, used only for
+    /// per-handle backpressure (`poll_ready` / `Rejected`).
+    ///
+    /// Stored as an id (not `OpaqueStreamRef`) so it does **not** keep the
+    /// stream alive: dropping `ResponseFuture` + `SendStream` must cancel the
+    /// request even when this handle still remembers the id for readiness.
+    pending: Option<StreamId>,
 }
 
 /// Returns a `SendRequest` instance once it is ready to send at least one
@@ -365,7 +371,7 @@ where
     ///
     /// [module]: index.html
     pub fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), crate::Error>> {
-        ready!(self.inner.poll_pending_open(cx, self.pending.as_ref()))?;
+        ready!(self.inner.poll_pending_open(cx, self.pending))?;
         self.pending = None;
         Poll::Ready(Ok(()))
     }
@@ -515,13 +521,15 @@ where
         end_of_stream: bool,
     ) -> Result<(ResponseFuture, SendStream<B>), crate::Error> {
         self.inner
-            .send_request(request, end_of_stream, self.pending.as_ref())
+            .send_request(request, end_of_stream, self.pending)
             .map_err(Into::into)
             .map(|(stream, is_full)| {
                 if stream.is_pending_open() && is_full {
-                    // Only prevent sending another request when the request queue
-                    // is not full.
-                    self.pending = Some(stream.clone_to_opaque());
+                    // Remember this stream's id for poll_ready backpressure.
+                    // Do not hold an OpaqueStreamRef: that would keep ref_count
+                    // > 0 and block implicit cancel when the user drops the
+                    // ResponseFuture and SendStream.
+                    self.pending = Some(stream.stream_id());
                 }
 
                 let response = ResponseFuture {
