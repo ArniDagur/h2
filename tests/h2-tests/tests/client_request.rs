@@ -2165,6 +2165,37 @@ async fn invalid_connect_protocol_enabled_setting() {
     join(srv, h2).await;
 }
 
+/// RFC 9113 §6.5.2: server MUST NOT send SETTINGS_ENABLE_PUSH = 1.
+/// Client treats it as a connection PROTOCOL_ERROR.
+#[tokio::test]
+async fn server_enable_push_one_is_connection_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        // After handshake (initial empty SETTINGS), send illegal ENABLE_PUSH=1.
+        srv.send_frame(frames::settings().enable_push()).await;
+        // ACK is written before apply; apply then fails → GOAWAY.
+        srv.recv_frame(frames::settings_ack()).await;
+        srv.recv_frame(frames::go_away(0).protocol_error()).await;
+    };
+
+    let h2 = async move {
+        let (_client, mut conn) = client::handshake(io).await.unwrap();
+        // Drive the connection without queuing a request so the next frames are
+        // SETTINGS_ACK + GOAWAY (not request HEADERS).
+        let err = poll_fn(|cx| Pin::new(&mut conn).poll(cx))
+            .await
+            .expect_err("connection error");
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn extended_connect_request() {
     h2_support::trace_init!();

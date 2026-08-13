@@ -385,6 +385,11 @@ impl Mock<frame::Settings> {
         self
     }
 
+    pub fn enable_push(mut self) -> Self {
+        self.0.set_enable_push(true);
+        self
+    }
+
     pub fn enable_connect_protocol(mut self, val: u32) -> Self {
         self.0.set_enable_connect_protocol(Some(val));
         self

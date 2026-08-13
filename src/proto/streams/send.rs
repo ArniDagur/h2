@@ -663,7 +663,14 @@ impl Send {
         }
 
         if let Some(val) = settings.is_push_enabled() {
-            self.is_push_enabled = val
+            // RFC 9113 §6.5.2: "A server MUST NOT send a SETTINGS frame that
+            // has [ENABLE_PUSH] set to a value of 1." Clients treat that as a
+            // connection error PROTOCOL_ERROR.
+            if val && !counts.peer().is_server() {
+                proto_err!(conn: "server sent SETTINGS_ENABLE_PUSH = 1");
+                return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+            }
+            self.is_push_enabled = val;
         }
 
         Ok(())
