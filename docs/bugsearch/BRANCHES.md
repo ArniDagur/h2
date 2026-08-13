@@ -48,6 +48,7 @@
 | `fix/reject-host-authority-mismatch` | F42 |
 | `fix/reject-no-content-without-end-stream` | F43 |
 | `fix/reject-authority-userinfo` | F44 |
+| `fix/reject-outbound-authority-userinfo` | F45 |
 
 ## experimental contains
-F1–F44, I1–I2, deadlock stress test, docs.
+F1–F45, I1–I2, deadlock stress test, docs.

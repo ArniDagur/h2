@@ -248,6 +248,12 @@
 - **Fix branch:** `fix/reject-authority-userinfo`
 - **Change:** Reject when `:authority` bytes contain `@` before Authority parse. Also covers PUSH_PROMISE request conversion.
 
+### F45 — Outbound URI userinfo generated as `:authority`
+- **Severity:** Medium (protocol / security): F44 sibling on the generate path. RFC 9113 §8.3.1 forbids generating `:authority` with userinfo. `Pseudo::request` copies `http::Uri` authority verbatim, so `Request` URIs like `https://user:pass@example.com/` produced illegal HEADERS on the wire (and push_request would too).
+- **Evidence:** `send_request` with userinfo URI succeeded pre-fix (HEADERS queued with userinfo authority); post-fix `UserError::MalformedHeaders` before open. Connection remains usable for a clean follow-up request. Regression `outbound_uri_userinfo_is_user_error`.
+- **Fix branch:** `fix/reject-outbound-authority-userinfo`
+- **Change:** After Host promotion, reject `@` in `:authority` in client `convert_send_message` and server `convert_push_message`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

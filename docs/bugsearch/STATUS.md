@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F44: `:authority` with userinfo (`user:pass@host`) accepted.
+F45: outbound URI userinfo generated as `:authority` on the wire.
 
 ## Last actions
-1. Confirmed **F44**: `user:pass@example.com` as `:authority` delivered to `poll_accept`.
-2. Fix: reject `@` in `:authority` in `server::Peer::convert_poll_message` before URI parse.
-3. Regression: `reject_authority_with_userinfo`. Note: HEAD non-empty DATA already PROTOCOL_ERROR via `ContentLength::Head`.
+1. Confirmed **F45**: `send_request(https://user:pass@example.com/)` queued HEADERS with userinfo in `:authority`.
+2. Fix: reject `@` in `:authority` after Host promotion in client `convert_send_message` and server `convert_push_message`.
+3. Regression: `outbound_uri_userinfo_is_user_error` (F44 inbound already fixed).
 
 ## Next recommended step
-1. Package PRs for F3–F44.
+1. Package PRs for F3–F45.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (outbound userinfo in URI → `:authority` optional follow-up).
+3. Further FC/wakeup / protocol hunt.
 
 ## Blockers
 None.
