@@ -1,14 +1,16 @@
 # Ideas backlog
 
 ## Tried
-- F1–F10 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F11 fixes; #853 dismiss; I1/I2 conservation.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
+- #878/#880 fixed upstream (#893/#896).
 
 ## High priority next
-1. Package PRs for F3–F10.
+1. Package PRs for F3–F11.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
+3. Optional: explicit `send_reset` on pending_open when max stays 0 (F11 residual).
 
 ## Lower priority
 - Upstream notes on findings.

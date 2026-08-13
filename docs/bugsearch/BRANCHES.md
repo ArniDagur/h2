@@ -14,6 +14,7 @@
 | `fix/settings-decrease-wake-capacity` | F8 |
 | `fix/pending-open-occupancy-backpressure` | F9 |
 | `fix/local-settings-window-increase-before-ack` | F10 |
+| `fix/abort-cancelled-pending-open-at-max-zero` | F11 |
 
 ## experimental contains
-F1–F10, I1–I2, deadlock stress test, docs.
+F1–F11, I1–I2, deadlock stress test, docs.
