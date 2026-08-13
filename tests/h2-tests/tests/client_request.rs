@@ -3051,3 +3051,53 @@ async fn drop_stream_handles_cancels_despite_sendrequest_pending() {
 
     join(srv, client).await;
 }
+
+#[tokio::test]
+async fn poll_reset_after_clean_eos_must_not_hang() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("POST", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        // end_of_stream true => send half closed immediately, no SendStream body
+        let (resp, mut send_stream) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Stream fully closed (EndStream both sides). poll_reset must not hang.
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            poll_fn(|cx| send_stream.poll_reset(cx)),
+        )
+        .await
+        .expect("poll_reset hung after clean EndStream")
+        .expect_err("poll_reset after clean EOS should error, not yield a Reason");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("inactive"),
+            "expected inactive-stream user error, got {msg}"
+        );
+        drop(resp);
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, client).await;
+}

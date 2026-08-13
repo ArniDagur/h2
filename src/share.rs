@@ -364,10 +364,14 @@ impl<B: Buf> SendStream<B> {
     /// If a `RST_STREAM` frame is received for this stream, calling this
     /// method will yield the `Reason` for the reset.
     ///
+    /// If the stream is fully closed without a reset (both sides ended
+    /// cleanly), this returns an error rather than hanging.
+    ///
     /// # Error
     ///
     /// If connection sees an error, this returns that error instead of a
-    /// `Reason`.
+    /// `Reason`. If the stream closed without `RST_STREAM`, this returns a
+    /// user error (`inactive stream`).
     pub fn poll_reset(&mut self, cx: &mut Context) -> Poll<Result<Reason, crate::Error>> {
         self.inner.poll_reset(cx, proto::PollReset::Streaming)
     }

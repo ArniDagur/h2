@@ -480,6 +480,9 @@ impl State {
             Closed(Cause::Error(ref e) | Cause::ErrorAfterEndStream(ref e)) => {
                 Err(e.clone().into())
             }
+            // Fully closed without a RST_STREAM: do not leave poll_reset Pending
+            // forever (no further frames can arrive on this stream).
+            Closed(Cause::EndStream) => Err(UserError::InactiveStreamId.into()),
             Open {
                 local: Streaming, ..
             }
