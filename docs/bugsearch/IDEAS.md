@@ -111,6 +111,9 @@
 - Ignored empty tests (`stream_close_by_recv_reset_frame_releases_capacity`, `recv_window_update_causes_overflow`, `accept_with_pending_connections_after_socket_close`) are stubs, not failing cases.
 - Mid-connection `set_initial_window_size` / `enable_connect_protocol` only set `Local::ToSend` (no `actions.task` wake). Both require `&mut Connection` on the polled object, so the next `poll_ready` emits SETTINGS. Contrast with `PingPong::send_ping`, which has a split handle and must wake `ping_task`.
 - Server HEADERS on skipped stream id: `Recv::open` GOAWAYs PROTOCOL_ERROR when `id < next_stream_id`. RFC 5.1.1 implicit close of unused lower ids; reuse is a connection error in Go/nghttp2. Client forgotten-stream path (response after local RST) is STREAM_CLOSED only.
+- `SendRequest::clone` sets `pending: None`. Two clones cannot park on the same `open_task`.
+- `Prioritize` comment says send queues are ID-ordered; `Queue::push` is FIFO. Safe in practice: `send_request` assigns increasing ids under the mutex then `queue_open`; `buffer_pending` opens at most one pending_open per frame and `push_front`s it so that stream's HEADERS are popped next. A later stream cannot emit HEADERS while an earlier id is still idle.
+- Fully encoded small DATA sets `last_data_frame` in `Encoder::buffer`; `reclaim_frame` right after clears `in_flight_data_frame`. Large DATA stays in `encoder.next` until flush (`has_capacity` false). Debug assert `Nothing` before the next DATA holds.
 
 ## High priority next
 1. Package PRs for F3–F87.

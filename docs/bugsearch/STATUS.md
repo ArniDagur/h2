@@ -7,9 +7,9 @@
 No new high-signal bug this fire (hang/FC/cancel/wakeup).
 
 ## Last actions
-1. `set_initial_window_size` / `enable_connect_protocol` queue SETTINGS without an explicit wake — they take `&mut Connection`, so the next `poll`/`poll_closed` runs `poll_ready` and writes the frame (not F76).
-2. Server HEADERS on a skipped id (`id < next_stream_id`) is connection PROTOCOL_ERROR (implicit idle close / reuse). Match typical Go/nghttp2, not stream STREAM_CLOSED.
-3. `release_capacity` still wakes `actions.task` when unclaimed crosses the WU threshold.
+1. `SendRequest::clone` clears `pending` (no shared `open_task` waker theft).
+2. `pending_send` is FIFO + `push_front` on newly opened streams, not ID-sorted. `pending_open` is allocation-order FIFO (IDs increase under the lock). One open per `buffer_pending` turn; codec CONTINUATION makes `has_capacity` false before the next open. Lower-id HEADERS still leave first.
+3. Small DATA is reclaimed immediately after `buffer` (`last_data_frame`); `in_flight_data_frame` does not stick across frames.
 
 ## Next recommended step
 1. Package PRs for F3–F87.
