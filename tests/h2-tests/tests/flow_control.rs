@@ -3741,3 +3741,78 @@ async fn reserve_capacity_reclaim_wakes_connection_for_starved_send() {
 
     join(srv, client).await;
 }
+
+/// Dropping `SendStream` while `ResponseFuture` is still held must reclaim
+/// unused reserved send capacity. Pre-fix the reservation stayed assigned
+/// until all refs dropped, starving other streams' DATA.
+#[tokio::test]
+async fn drop_send_stream_reclaims_reserved_capacity() {
+    use std::time::Duration;
+
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/hold"))
+            .await;
+        srv.recv_frame(frames::headers(3).request("POST", "https://example.com/send"))
+            .await;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            srv.recv_frame(frames::data(3, &b"starved"[..]).eos()),
+        )
+        .await
+        .expect("starved DATA not sent after SendStream drop reclaim");
+
+        srv.send_frame(frames::headers(1).response(204).eos()).await;
+        srv.send_frame(frames::headers(3).response(204).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let hold = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/hold")
+            .body(())
+            .unwrap();
+        let (resp_hold, mut hold_stream) = client.send_request(hold, false).unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        hold_stream.reserve_capacity(frame::DEFAULT_INITIAL_WINDOW_SIZE as usize);
+        let hold_stream =
+            util::wait_for_capacity(hold_stream, frame::DEFAULT_INITIAL_WINDOW_SIZE as usize).await;
+
+        let send = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/send")
+            .body(())
+            .unwrap();
+        let (resp_send, mut send_stream) = client.send_request(send, false).unwrap();
+        send_stream
+            .send_data(Bytes::from_static(b"starved"), true)
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Keep ResponseFuture; drop only the send handle.
+        drop(hold_stream);
+
+        let _ = resp_send.await.expect("send response");
+        let _ = resp_hold.await;
+    };
+
+    join(srv, client).await;
+}

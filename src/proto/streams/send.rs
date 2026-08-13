@@ -433,6 +433,16 @@ impl Send {
     }
 
     /// Request capacity to send data
+    pub fn reclaim_reserved_capacity(
+        &mut self,
+        stream: &mut store::Ptr,
+        counts: &mut Counts,
+        task: &mut Option<Waker>,
+    ) {
+        self.prioritize
+            .reclaim_reserved_capacity(stream, counts, task)
+    }
+
     pub fn reserve_capacity(
         &mut self,
         capacity: WindowSize,

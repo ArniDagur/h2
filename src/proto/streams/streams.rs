@@ -146,6 +146,7 @@ where
                 me.counts.dec_num_remote_reset_streams();
             }
 
+            stream.send_ref_inc();
             StreamRef {
                 opaque: OpaqueStreamRef::new(self.inner.clone(), stream),
                 send_buffer: self.send_buffer.clone(),
@@ -401,6 +402,7 @@ where
         me.refs += 1;
 
         let is_full = me.counts.next_send_stream_will_reach_capacity();
+        stream.send_ref_inc();
         Ok((
             StreamRef {
                 opaque: OpaqueStreamRef::new(self.inner.clone(), &mut stream),
@@ -1490,6 +1492,10 @@ impl<B> StreamRef<B> {
         }
 
         me.refs += 1;
+        {
+            let mut child = me.store.resolve(child_key);
+            child.send_ref_inc();
+        }
         let opaque =
             OpaqueStreamRef::new(self.opaque.inner.clone(), &mut me.store.resolve(child_key));
 
@@ -1580,9 +1586,34 @@ impl<B> StreamRef<B> {
 
 impl<B> Clone for StreamRef<B> {
     fn clone(&self) -> Self {
+        if let Ok(mut inner) = self.opaque.inner.lock() {
+            inner.store.resolve(self.opaque.key).send_ref_inc();
+        }
         StreamRef {
             opaque: self.opaque.clone(),
             send_buffer: self.send_buffer.clone(),
+        }
+    }
+}
+
+impl<B> Drop for StreamRef<B> {
+    fn drop(&mut self) {
+        // Recv-only handles (ResponseFuture / RecvStream) keep `ref_count` > 0
+        // after `SendStream` is dropped. Unused reserved send capacity must
+        // still return to the connection or other streams starve (F77).
+        let Ok(mut inner) = self.opaque.inner.lock() else {
+            return;
+        };
+        let inner = &mut *inner;
+        let mut stream = inner.store.resolve(self.opaque.key);
+        debug_assert!(stream.send_ref_count > 0);
+        stream.send_ref_count -= 1;
+        if stream.send_ref_count == 0 {
+            inner.actions.send.reclaim_reserved_capacity(
+                &mut stream,
+                &mut inner.counts,
+                &mut inner.actions.task,
+            );
         }
     }
 }

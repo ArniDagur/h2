@@ -35,6 +35,11 @@ pub(super) struct Stream {
     /// Number of outstanding handles pointing to this stream
     pub ref_count: usize,
 
+    /// Number of outstanding *send* handles (`StreamRef` / `SendStream`).
+    /// Recv-only handles do not increment this. When it hits zero, unused
+    /// reserved send capacity is returned to the connection.
+    pub send_ref_count: usize,
+
     // ===== Fields related to sending =====
     /// Next node in the accept linked list
     pub next_pending_send: Option<store::Key>,
@@ -187,6 +192,7 @@ impl Stream {
             id,
             state: State::default(),
             ref_count: 0,
+            send_ref_count: 0,
             is_counted: false,
             is_reserved: false,
 
@@ -299,6 +305,10 @@ impl Stream {
     /// In this case, a reset should be sent.
     pub fn is_canceled_interest(&self) -> bool {
         self.ref_count == 0 && !self.state.is_closed()
+    }
+
+    pub fn send_ref_inc(&mut self) {
+        self.send_ref_count += 1;
     }
 
     /// Current available stream send capacity
