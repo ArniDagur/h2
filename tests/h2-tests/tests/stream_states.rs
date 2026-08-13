@@ -1539,3 +1539,69 @@ async fn data_after_response_eos_is_stream_closed_not_goaway() {
 
     join(srv, client).await;
 }
+
+/// HEADERS after the peer already ended the receive half must be a *stream*
+/// error (STREAM_CLOSED), not a connection GOAWAY PROTOCOL_ERROR.
+///
+/// Pre-fix: treated as trailers → `recv_close` on Closed/HalfClosedRemote
+/// → GOAWAY PROTOCOL_ERROR. RFC 9113 §5.1 / Go processHeaders.
+#[tokio::test]
+async fn headers_after_response_eos_is_stream_closed_not_goaway() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // Complete response with END_STREAM on headers.
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        // Late HEADERS (e.g. duplicate trailers / spurious block) on stream 1.
+        srv.send_frame(
+            frames::headers(1)
+                .field("x-late", "1")
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(frames::reset(1).stream_closed()).await;
+        srv.ping_pong([1; 8]).await;
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/next")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(3).response(204).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.expect("handshake");
+        let mut conn = Box::pin(conn);
+
+        let work = async {
+            let resp = client.get("https://example.com/").await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let mut body = resp.into_body();
+            assert!(body.data().await.is_none());
+            // Hold stream in store while late HEADERS is processed.
+            idle_ms(50).await;
+            drop(body);
+
+            let resp = client
+                .get("https://example.com/next")
+                .await
+                .expect("second response");
+            assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        };
+        conn.drive(work).await;
+        conn.await.expect("client conn");
+        drop(client);
+    };
+
+    join(srv, client).await;
+}

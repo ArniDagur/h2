@@ -600,6 +600,18 @@ impl Inner {
                     },
                     Err(RecvHeaderBlockError::State(err)) => Err(err),
                 }
+            } else if stream.state.is_recv_end_stream() {
+                // Already half-closed (remote) / closed after EOS. Further
+                // HEADERS (including a second "trailers" block) are not valid.
+                // RFC 9113 §5.1: stream error STREAM_CLOSED — not connection
+                // GOAWAY. Matches Go processHeaders on stateHalfClosedRemote.
+                // Without this, recv_trailers → recv_close GOAWAYs PROTOCOL_ERROR.
+                proto_err!(
+                    stream: "recv_headers: HEADERS after recv EOS; stream={:?}; state={:?}",
+                    stream.id,
+                    stream.state
+                );
+                Err(Error::library_reset(stream.id, Reason::STREAM_CLOSED))
             } else {
                 if !frame.is_end_stream() {
                     // Receiving trailers that don't set EOS is a "malformed"
