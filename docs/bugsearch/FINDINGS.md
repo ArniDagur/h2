@@ -236,6 +236,12 @@
 - **Fix branch:** `fix/reject-host-authority-mismatch`
 - **Change:** In `server::Peer::convert_poll_message`, if both Host and `:authority` present and byte-values differ → malformed. Applies to PUSH_PROMISE request conversion too.
 
+### F43 — 204/205/304 response HEADERS without END_STREAM accepted
+- **Severity:** Medium (protocol): RFC 9110: 204 No Content, 205 Reset Content, and 304 Not Modified are terminated by the header section and cannot include content or trailers. Pre-fix only special-cased non-zero Content-Length + EOS for 204/304; a 204 without END_STREAM left the stream recv-streaming so subsequent DATA was delivered as a body.
+- **Evidence:** Response HEADERS `:status: 204` (no EOS) then DATA — pre-fix client got 204 + body bytes; post-fix `RST_STREAM(PROTOCOL_ERROR)` on the HEADERS. Valid 204 with EOS still works. Regression `no_content_without_end_stream_is_stream_error`.
+- **Fix branch:** `fix/reject-no-content-without-end-stream`
+- **Change:** In `Recv::recv_headers` (client), if status is 204/205/304 and `!frame.is_end_stream()`, library reset PROTOCOL_ERROR before `recv_open`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

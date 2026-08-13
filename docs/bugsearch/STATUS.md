@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F42: inbound request `Host` differing from `:authority` accepted.
+F43: 204/205/304 response HEADERS without END_STREAM accepted (body allowed).
 
 ## Last actions
-1. Confirmed **F42**: GET with `:authority: example.com` + `Host: evil.example` delivered to `poll_accept`.
-2. Fix: `server::Peer::convert_poll_message` rejects Host ≠ `:authority` (PROTOCOL_ERROR); matching Host still OK.
-3. Regressions: `reject_host_header_differing_from_authority`, `matching_host_with_authority_is_accepted`.
+1. Confirmed **F43**: 204 without EOS then DATA body was delivered; stream closed EndStream.
+2. Fix: reject status 204/205/304 without END_STREAM before `recv_open` (client).
+3. Regression: `no_content_without_end_stream_is_stream_error`.
 
 ## Next recommended step
-1. Package PRs for F3–F42.
+1. Package PRs for F3–F43.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 

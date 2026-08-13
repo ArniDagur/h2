@@ -96,5 +96,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F42):** byte mismatch → stream PROTOCOL_ERROR; equal Host kept.
 - **Verdict:** F42 is a recommended-server-behavior + security hardening fix (not a hard MUST, but interop/security high-signal).
 
+### 204/205/304 without END_STREAM
+- **RFC 9110:** these statuses are terminated by the header section; no content or trailers.
+- **Rust h2 (pre-F43):** 204 without EOS left stream recv-streaming → DATA accepted as body.
+- **Rust h2 (F43):** client rejects 204/205/304 HEADERS without END_STREAM as stream PROTOCOL_ERROR.
+- **Verdict:** F43 aligns with HTTP message framing rules (HTTP semantics, not only HTTP/2 frame layer).
+
 ## Planned comparisons
 - Residual #848 API design.
