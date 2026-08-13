@@ -398,6 +398,12 @@
 - **Fix branch:** `fix/reject-path-without-leading-slash`
 - **Change:** `frame::is_valid_path`; normalize query-only in `Pseudo::request` to `/`+query; reject invalid path form on server recv, client send, push convert.
 
+### F70 — Content-Length on informational (1xx) responses accepted
+- **Severity:** Medium (protocol): RFC 9110 §8.6 forbids Content-Length on 1xx. nghttp2 rejects any CL on 1xx; outbound `send_informational` already rejects. Pre-fix only skipped applying 1xx CL to the final body (F34) and still queued the 1xx (with CL) for `poll_informational`.
+- **Evidence:** Peer 100 Continue with `Content-Length: 0` → post-fix `RST_STREAM(PROTOCOL_ERROR)`. 1xx without CL still accepted. Regressions: `informational_with_content_length_is_stream_error`, `informational_without_content_length_then_body_ok` (replaces old F34 body test).
+- **Fix branch:** `fix/reject-content-length-on-1xx`
+- **Change:** Client `recv_headers` rejects informational HEADERS that include Content-Length before `recv_open`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

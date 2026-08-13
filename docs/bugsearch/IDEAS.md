@@ -68,6 +68,7 @@
 - Header values with leading/trailing SP/HTAB → F67.
 - Non-zero Content-Length on 204 responses → F68.
 - Non path-absolute `:path` / query-only URI → F69.
+- Content-Length on 1xx responses → F70.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 - Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.
@@ -76,7 +77,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F69.
+1. Package PRs for F3–F70.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -95,4 +96,5 @@
 - `:path` starting with `//`: nghttp2 treats any path starting with `/` as regular (not full path-absolute check) — match reference, not fix-worthy.
 - Empty IPv6 literal authority `[]` (host `"[]"`): F66 residual; RFC 3986 IP-literal empty content is invalid; Go/nghttp2 char-set accept — lower priority.
 - Inbound 204 with CL:0 still accepted (nghttp2 strips; F68 rejects non-zero only). Outbound still rejects any CL on 204 (stricter generate).
-- Content-Length on 1xx: nghttp2 rejects; Go delivers to 1xx hook; h2 ignores for body tracking (F34) but still exposes header — optional stricter recv.
+- Empty `:protocol` on extended CONNECT: nghttp2 rejects empty pseudo values; h2 accepts empty Protocol string — optional reject.
+- `max_send_buffer_size(0)` makes `poll_capacity` Pending forever (API footgun); optional builder assert.

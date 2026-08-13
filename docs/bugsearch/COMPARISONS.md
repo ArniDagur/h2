@@ -53,6 +53,14 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F35):** hard cap 5 per stream; further 1xx → ENHANCE_YOUR_CALM (always, including when user polls informational).
 - **Verdict:** F35 matches Go intent; slightly stricter when user drains 1xx (still capped at 5 total).
 
+### Content-Length on 1xx informational responses
+- **RFC 9110 §8.6:** server MUST NOT send Content-Length on 1xx.
+- **nghttp2:** any Content-Length on 1xx → HTTP_HEADER error.
+- **Go:** delivers 1xx (with headers) to Got1xxResponse hook; does not special-case reject CL.
+- **Rust h2 outbound:** `send_informational` rejects Content-Length (UserError).
+- **Rust h2 recv (pre-F70 / F34):** did not apply 1xx CL to final body tracking, but accepted the 1xx and exposed CL via `poll_informational`.
+- **Rust h2 recv (F70):** any Content-Length on 1xx → stream PROTOCOL_ERROR (matches RFC/nghttp2/outbound; stricter than Go).
+
 ### 101 Switching Protocols
 - **RFC 9113 §8.1:** HTTP/2 does not support 101 (Switching Protocols); Upgrade is not used on HTTP/2.
 - **Rust h2 (pre-F57):** 101 treated as ordinary informational 1xx on recv and generatable via `send_informational`.
