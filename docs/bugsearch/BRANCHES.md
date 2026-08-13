@@ -24,6 +24,7 @@
 | `fix/pending-push-cancel-sends-reset` | F18 |
 | `fix/clear-queue-discards-unsent-push-children` | F19 |
 | `fix/push-promise-parent-state-check` | F20 |
+| `fix/reject-authority-without-scheme` | F21 |
 
 ## experimental contains
-F1–F20, I1–I2, deadlock stress test, docs.
+F1–F21, I1–I2, deadlock stress test, docs.

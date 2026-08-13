@@ -100,6 +100,12 @@
 - **Fix branch:** `fix/push-promise-parent-state-check`
 - **Change:** `is_send_push_promise_allowed` on `State`; `send_push_promise` rejects before allocating promised stream.
 
+### F21 — Authority without scheme on non-CONNECT requests
+- **Severity:** Medium (protocol): RFC 9113 §8.3.1 requires `:method`, `:scheme`, and `:path` on all non-CONNECT requests. `convert_send_message` handled relative URIs (no authority) but left a `// TODO: Error` for authority-present / scheme-absent (e.g. `Uri` of `example.com:8080` / OPTIONS host form), so HEADERS went on the wire without `:scheme`.
+- **Evidence:** Pre-fix `send_request(GET, "example.com:8080")` succeeded; post-fix `UserError::MissingUriSchemeAndAuthority`. Regression `request_with_authority_without_scheme_is_user_error`. CONNECT authority-only remains valid.
+- **Fix branch:** `fix/reject-authority-without-scheme`
+- **Change:** Reject in `client::Peer::convert_send_message`; same check in `server::Peer::convert_push_message`; run convert before `Send::open()` so validation does not burn a stream id.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
