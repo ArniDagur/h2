@@ -1694,9 +1694,20 @@ impl proto::Peer for Peer {
 
         b = b.version(Version::HTTP_2);
 
-        if let Some(status) = pseudo.status {
-            b = b.status(status);
-        }
+        // RFC 9113 §8.3.2: responses MUST include exactly one `:status`.
+        // Without this, http::Response::builder defaults to 200 OK and a
+        // missing pseudo-header is silently accepted (Go rejects as malformed).
+        let status = match pseudo.status {
+            Some(status) => status,
+            None => {
+                proto_err!(
+                    stream: "malformed headers: missing status; stream={:?}",
+                    stream_id
+                );
+                return Err(Error::library_reset(stream_id, Reason::PROTOCOL_ERROR));
+            }
+        };
+        b = b.status(status);
 
         let mut response = match b.body(()) {
             Ok(response) => response,

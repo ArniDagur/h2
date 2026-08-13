@@ -208,6 +208,21 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
         }
 
+        // RFC 9113 §8.3.2: all HTTP/2 responses MUST include `:status`.
+        // Check before recv_open: EOS on the request half would close the stream
+        // and make send_reset a no-op (closed + empty queue).
+        // Informational responses always have a status (is_informational requires it).
+        if !counts.peer().is_server()
+            && !frame.is_informational()
+            && frame.pseudo().status.is_none()
+        {
+            proto_err!(
+                stream: "recv_headers: missing :status on response; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
+        }
+
         let is_initial = stream.state.recv_open(&frame)?;
 
         if is_initial {
