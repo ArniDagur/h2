@@ -1251,7 +1251,14 @@ impl<B: Buf> SendResponse<B> {
     ) -> Result<SendStream<B>, crate::Error> {
         self.inner
             .send_response(response, end_of_stream)
-            .map(|_| SendStream::new(self.inner.clone()))
+            .map(|_| {
+                // Transfer send ownership to SendStream. SendResponse is no
+                // longer used for DATA; keeping its send-ref would pin
+                // reserve_capacity until this handle drops (F78).
+                let send = SendStream::new(self.inner.clone());
+                self.inner.release_send_ownership();
+                send
+            })
             .map_err(Into::into)
     }
 

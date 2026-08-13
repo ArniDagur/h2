@@ -53,6 +53,12 @@ pub(crate) struct DynStreams<'a, B> {
 pub(crate) struct StreamRef<B> {
     opaque: OpaqueStreamRef,
     send_buffer: Arc<SendBuffer<B>>,
+    /// Whether `Drop` still owns a `send_ref_count` slot.
+    ///
+    /// `SendResponse::send_response` clones this handle for `SendStream` and
+    /// then releases send ownership: after headers, `SendResponse` cannot send
+    /// DATA but would otherwise pin reserved capacity (F78).
+    owns_send: bool,
 }
 
 /// Reference to the stream state that hides the send data chunk generic
@@ -150,6 +156,7 @@ where
             StreamRef {
                 opaque: OpaqueStreamRef::new(self.inner.clone(), stream),
                 send_buffer: self.send_buffer.clone(),
+                owns_send: true,
             }
         })
     }
@@ -407,6 +414,7 @@ where
             StreamRef {
                 opaque: OpaqueStreamRef::new(self.inner.clone(), &mut stream),
                 send_buffer: self.send_buffer.clone(),
+                owns_send: true,
             },
             is_full,
         ))
@@ -1502,6 +1510,7 @@ impl<B> StreamRef<B> {
         Ok(StreamRef {
             opaque,
             send_buffer: self.send_buffer.clone(),
+            owns_send: true,
         })
     }
 
@@ -1582,16 +1591,29 @@ impl<B> StreamRef<B> {
     pub fn stream_id(&self) -> StreamId {
         self.opaque.stream_id()
     }
+
+    /// Drop this handle's send-ref without reclaiming if another send handle
+    /// still exists. Used after `send_response` transfers send to `SendStream`.
+    pub fn release_send_ownership(&mut self) {
+        if !self.owns_send {
+            return;
+        }
+        self.owns_send = false;
+        drop_send_ref(&self.opaque.inner, self.opaque.key);
+    }
 }
 
 impl<B> Clone for StreamRef<B> {
     fn clone(&self) -> Self {
-        if let Ok(mut inner) = self.opaque.inner.lock() {
-            inner.store.resolve(self.opaque.key).send_ref_inc();
+        if self.owns_send {
+            if let Ok(mut inner) = self.opaque.inner.lock() {
+                inner.store.resolve(self.opaque.key).send_ref_inc();
+            }
         }
         StreamRef {
             opaque: self.opaque.clone(),
             send_buffer: self.send_buffer.clone(),
+            owns_send: self.owns_send,
         }
     }
 }
@@ -1601,20 +1623,29 @@ impl<B> Drop for StreamRef<B> {
         // Recv-only handles (ResponseFuture / RecvStream) keep `ref_count` > 0
         // after `SendStream` is dropped. Unused reserved send capacity must
         // still return to the connection or other streams starve (F77).
-        let Ok(mut inner) = self.opaque.inner.lock() else {
+        // After `send_response`, `SendResponse` releases send ownership so
+        // this Drop does not keep the reservation alive (F78).
+        if !self.owns_send {
             return;
-        };
-        let inner = &mut *inner;
-        let mut stream = inner.store.resolve(self.opaque.key);
-        debug_assert!(stream.send_ref_count > 0);
-        stream.send_ref_count -= 1;
-        if stream.send_ref_count == 0 {
-            inner.actions.send.reclaim_reserved_capacity(
-                &mut stream,
-                &mut inner.counts,
-                &mut inner.actions.task,
-            );
         }
+        drop_send_ref(&self.opaque.inner, self.opaque.key);
+    }
+}
+
+fn drop_send_ref(inner: &Mutex<Inner>, key: store::Key) {
+    let Ok(mut inner) = inner.lock() else {
+        return;
+    };
+    let inner = &mut *inner;
+    let mut stream = inner.store.resolve(key);
+    debug_assert!(stream.send_ref_count > 0);
+    stream.send_ref_count -= 1;
+    if stream.send_ref_count == 0 {
+        inner.actions.send.reclaim_reserved_capacity(
+            &mut stream,
+            &mut inner.counts,
+            &mut inner.actions.task,
+        );
     }
 }
 

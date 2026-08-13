@@ -3816,3 +3816,81 @@ async fn drop_send_stream_reclaims_reserved_capacity() {
 
     join(srv, client).await;
 }
+
+/// `send_response` clones `StreamRef` for `SendStream` but leaves `SendResponse`
+/// as a send handle (`send_ref_count` stays > 0). Dropping only `SendStream`
+/// must still reclaim unused reserved capacity or other streams starve (F78).
+#[tokio::test]
+async fn drop_send_stream_reclaims_reserved_capacity_despite_send_response() {
+    use std::time::Duration;
+
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let (done_tx, done_rx) = oneshot::channel::<()>();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+
+        client
+            .send_frame(frames::headers(1).request("POST", "https://example.com/hold"))
+            .await;
+        client
+            .send_frame(frames::headers(3).request("POST", "https://example.com/send"))
+            .await;
+
+        client.recv_frame(frames::headers(1).response(200)).await;
+        client.recv_frame(frames::headers(3).response(200)).await;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            client.recv_frame(frames::data(3, &b"starved"[..]).eos()),
+        )
+        .await
+        .expect("starved DATA not sent after SendStream drop with SendResponse held");
+        let _ = done_tx.send(());
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.unwrap();
+        let (_req1, mut respond1) = srv.next().await.unwrap().unwrap();
+        let (_req3, mut respond3) = srv.next().await.unwrap().unwrap();
+
+        let mut hold = respond1
+            .send_response(Response::new(()), false)
+            .unwrap();
+        hold.reserve_capacity(frame::DEFAULT_INITIAL_WINDOW_SIZE as usize);
+
+        tokio::spawn(async move {
+            while srv.next().await.is_some() {}
+        });
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let hold =
+            util::wait_for_capacity(hold, frame::DEFAULT_INITIAL_WINDOW_SIZE as usize).await;
+
+        let mut send = respond3
+            .send_response(Response::new(()), false)
+            .unwrap();
+        send.send_data(Bytes::from_static(b"starved"), true)
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Keep SendResponse; drop only the SendStream that reserved capacity.
+        drop(hold);
+
+        let _ = done_rx.await;
+        drop(respond1);
+        drop(respond3);
+        drop(send);
+    };
+
+    join(client, srv).await;
+}
