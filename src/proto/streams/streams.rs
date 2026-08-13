@@ -1319,6 +1319,13 @@ impl<B> StreamRef<B> {
         mut response: Response<()>,
         end_of_stream: bool,
     ) -> Result<(), UserError> {
+        // 1xx must use send_informational. Final send_response with 1xx can put
+        // END_STREAM on a 1xx block (RFC 9110/9113 forbid that) and closes the
+        // send half so a real final status cannot follow.
+        if response.status().is_informational() {
+            return Err(UserError::UnexpectedFrameType);
+        }
+
         // Clear before taking lock, incase extensions contain a StreamRef.
         response.extensions_mut().clear();
         let mut me = self.opaque.inner.lock().unwrap();

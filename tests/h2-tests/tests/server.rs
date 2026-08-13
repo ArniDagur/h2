@@ -2061,6 +2061,51 @@ async fn matching_host_with_authority_is_accepted() {
 
 /// RFC 9113 §8.3.1: :authority MUST NOT include the deprecated userinfo
 /// subcomponent (user:pass@host).
+
+
+/// Final send_response must not send 1xx (use send_informational).
+/// Pre-fix converted 100 + EOS into on-wire HEADERS that clients reject (F33).
+#[tokio::test]
+async fn send_response_rejects_informational_status() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        // Server should not send 1xx via send_response; expect a normal final response after reject.
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+        let cont = Response::builder().status(100).body(()).unwrap();
+        let err = stream
+            .send_response(cont, true)
+            .expect_err("1xx via send_response must fail");
+        assert!(
+            err.to_string().contains("user error") || err.to_string().contains("informational"),
+            "got {}",
+            err
+        );
+        stream
+            .send_response(Response::new(()), true)
+            .expect("final 200 ok");
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn reject_authority_with_userinfo() {
     h2_support::trace_init!();
