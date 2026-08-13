@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F65 pending merge)
+**Branch tip:** `experimental/bugsearch` (F65 @ `10069de`)
 
 ## Current focus
 F65: try_assign_capacity u32 wrap when available > window.
