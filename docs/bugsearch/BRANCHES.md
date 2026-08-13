@@ -91,6 +91,7 @@
 | `fix/malformed-push-promise-resets-promised` | F85 |
 | `fix/uppercase-header-name-stream-error` | F86 |
 | `fix/empty-header-name-stream-error` | F87 |
+| `fix/poll-reset-wake-on-end-stream` | F88 |
 
 ## experimental contains
-F1–F87, I1–I2, deadlock stress test, docs.
+F1–F88, I1–I2, deadlock stress test, docs.

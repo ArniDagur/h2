@@ -224,6 +224,7 @@ impl Prioritize {
         if frame.is_end_stream() {
             stream.state.send_close();
             self.reserve_capacity(0, stream, counts, task);
+            stream.notify_send_if_closed();
         }
 
         tracing::trace!(

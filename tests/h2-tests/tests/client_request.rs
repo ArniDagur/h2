@@ -3,7 +3,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use h2_support::prelude::*;
 use std::pin::Pin;
-use std::task::Context;
+use std::task::{Context, Poll};
 use std::{io, panic};
 
 #[tokio::test]
@@ -3843,6 +3843,81 @@ async fn poll_reset_after_clean_eos_must_not_hang() {
             msg.contains("inactive"),
             "expected inactive-stream user error, got {msg}"
         );
+        drop(resp);
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, client).await;
+}
+
+/// F31 residual: `poll_reset` parks on `send_task` while send is closed and
+/// recv is still open. Recv EOS fully closes the stream (`Closed(EndStream)`)
+/// but pre-fix only `notify_recv` / `notify_push` ran, so a task waiting on
+/// `poll_reset` was never woken (F31's same-task poll after `drive(resp)`
+/// did not catch this).
+#[tokio::test]
+async fn poll_reset_woken_when_recv_eos_closes_stream() {
+    use tokio::sync::oneshot;
+
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let (go_tx, go_rx) = oneshot::channel::<()>();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("POST", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // Wait until the client has parked poll_reset, then finish the stream.
+        go_rx.await.unwrap();
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        let conn = tokio::spawn(async move {
+            conn.await.expect("client");
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, mut send_stream) = client.send_request(request, true).unwrap();
+
+        let mut go_tx = Some(go_tx);
+        let reset = poll_fn(|cx| {
+            let poll = send_stream.poll_reset(cx);
+            if let Some(tx) = go_tx.take() {
+                assert!(
+                    matches!(poll, Poll::Pending),
+                    "poll_reset must park before recv EOS"
+                );
+                tx.send(()).unwrap();
+                return Poll::Pending;
+            }
+            poll
+        })
+        .wakened();
+
+        let err = tokio::time::timeout(std::time::Duration::from_secs(2), reset)
+            .await
+            .expect("poll_reset not woken after recv EOS")
+            .expect_err("poll_reset after clean EOS should error, not yield a Reason");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("inactive"),
+            "expected inactive-stream user error, got {msg}"
+        );
+
+        let resp = resp.await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
         drop(resp);
         drop(client);
         conn.await.unwrap();

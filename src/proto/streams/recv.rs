@@ -506,6 +506,9 @@ impl Recv {
             // wake push_promise waiters that are parked until the parent stream
             // is no longer recv-open (#811).
             stream.notify_push();
+            // Recv EOS + send already closed → Closed(EndStream). Wake
+            // poll_reset (F31 residual: value is Ready, but send_task was parked).
+            stream.notify_send_if_closed();
 
             // Only servers can receive a headers frame that initiates the stream.
             // This is verified in `Streams` before calling this function.
@@ -740,6 +743,7 @@ impl Recv {
         stream.notify_recv();
         // Trailers end the receive half; wake push_promise waiters (#811).
         stream.notify_push();
+        stream.notify_send_if_closed();
 
         Ok(())
     }
@@ -1156,6 +1160,7 @@ impl Recv {
         if stream.state.is_recv_end_stream() {
             stream.notify_push();
         }
+        stream.notify_send_if_closed();
 
         Ok(())
     }

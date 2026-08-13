@@ -416,6 +416,15 @@ impl Stream {
         }
     }
 
+    /// `poll_reset` parks on `send_task` while the stream is not reset.
+    /// Clean EndStream (`Closed`) must wake that waiter (F31 returns
+    /// `InactiveStreamId` instead of hanging, but only if we poll again).
+    pub fn notify_send_if_closed(&mut self) {
+        if self.state.is_closed() {
+            self.notify_send();
+        }
+    }
+
     pub fn wait_send(&mut self, cx: &Context) {
         self.send_task = Some(cx.waker().clone());
     }

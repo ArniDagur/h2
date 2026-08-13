@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F87 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F88 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -86,6 +86,7 @@
 - Malformed PUSH_PROMISE HPACK RST'd parent (not promised) → F85.
 - Uppercase/invalid header name was HPACK GOAWAY → F86.
 - Empty header name was NeedMore/GOAWAY → F87 (F86 residual).
+- `poll_reset` parked through recv EOS (`Closed(EndStream)`) never woken — F88 (F31 residual).
 - `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
 - F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
@@ -116,7 +117,7 @@
 - Fully encoded small DATA sets `last_data_frame` in `Encoder::buffer`; `reclaim_frame` right after clears `in_flight_data_frame`. Large DATA stays in `encoder.next` until flush (`has_capacity` false). Debug assert `Nothing` before the next DATA holds.
 
 ## High priority next
-1. Package PRs for F3–F87.
+1. Package PRs for F3–F88.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

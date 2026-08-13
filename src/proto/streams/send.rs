@@ -166,6 +166,7 @@ impl Send {
 
         // Update the state
         stream.state.send_open(end_stream)?;
+        stream.notify_send_if_closed();
 
         let mut pending_open = false;
         if counts.peer().is_local_init(frame.stream_id()) && !stream.is_pending_push {
@@ -395,6 +396,7 @@ impl Send {
         }
 
         stream.state.send_close();
+        stream.notify_send_if_closed();
 
         tracing::trace!("send_trailers -- queuing; frame={:?}", frame);
         self.prioritize

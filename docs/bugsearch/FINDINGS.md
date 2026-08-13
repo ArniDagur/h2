@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F88 — `poll_reset` not woken when recv EOS fully closes the stream
+- **Severity:** Medium (hang / missed wakeup): F31 made `Closed(EndStream)` return `Err(InactiveStreamId)` instead of parking forever, but recv EOS only `notify_recv` / `notify_push`. A task already parked on `SendStream::poll_reset` (`send_task`) while send was half-closed was never woken.
+- **Evidence:** Park `poll_reset` after request EOS, then peer response HEADERS+EOS. Pre-fix: 2s timeout (`wakened` never polled again). Post-fix: Ready `Err` (inactive). Same-task F31 test still passes. RST still wakes (`send_stream_poll_reset`).
+- **Fix branch:** `fix/poll-reset-wake-on-end-stream`
+- **Change:** `notify_send_if_closed` after recv HEADERS/DATA/trailers that complete the stream, and after local send EOS that fully closes (HEADERS/DATA/trailers).
+
 ### F32 — Pseudo-headers in trailers accepted (malformed)
 - **Severity:** Medium (protocol): RFC 9113 §8.1 requires trailer sections not include pseudo-header fields. `load_hpack` still places `:status`/etc. into `Pseudo` (no trailer context). `recv_trailers` called `into_fields()` and dropped Pseudo without error.
 - **Evidence:** Response headers then HEADERS+EOS carrying `:status` — pre-fix accepted (empty trailers); post-fix `RST_STREAM(PROTOCOL_ERROR)`, connection survives. Regression `recv_trailers_with_pseudo_header_is_stream_error`.
