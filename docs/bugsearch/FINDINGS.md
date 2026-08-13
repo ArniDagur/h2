@@ -326,6 +326,12 @@
 - **Fix branch:** `fix/reject-101-switching-protocols`
 - **Change:** Client `recv_headers` rejects `:status` 101 before `recv_open`; `SendResponse::send_informational` rejects 101.
 
+### F58 — `requested_send_capacity` can drop to 0 while DATA still buffered
+- **Severity:** Medium (FC / hang): `Prioritize::send_data` caps `requested_send_capacity` at `MAX_WINDOW_SIZE` while `buffered_send_data` may grow larger (multiple frames). `Stream::send_data` only did `requested -= len` when writing. After writing `MAX` (or any amount that exhausts the capped request) with more buffered, `requested` hit 0; `try_assign_capacity` then never assigned connection/stream capacity for the remainder → DATA hang.
+- **Evidence:** Unit tests: `send_data_does_not_zero_requested_while_buffered_remains`, `send_data_keeps_requested_floor_for_oversize_buffer`. Pre-fix leftover requested→0 with buffered>0; post-fix floor = min(remaining_buffered, MAX).
+- **Fix branch:** `fix/requested-capacity-floor-after-send`
+- **Change:** After decreasing requested/buffered on write, floor `requested_send_capacity` at `min(buffered_send_data, MAX_WINDOW_SIZE)`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

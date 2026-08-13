@@ -340,7 +340,17 @@ impl Stream {
         // Decrement the stream's buffered data counter
         debug_assert!(self.buffered_send_data >= len as usize);
         self.buffered_send_data -= len as usize;
-        self.requested_send_capacity -= len;
+        // `requested_send_capacity` is capped at MAX_WINDOW_SIZE when data is
+        // queued (multiple `send_data` frames can buffer more than that). If we
+        // only subtract `len`, requested can hit 0 while `buffered_send_data`
+        // still holds more frames — try_assign_capacity then never assigns
+        // again and remaining DATA hangs forever. Floor requested to remaining
+        // buffered (still capped at MAX).
+        self.requested_send_capacity = self.requested_send_capacity.saturating_sub(len);
+        let floor = std::cmp::min(self.buffered_send_data, MAX_WINDOW_SIZE as usize) as WindowSize;
+        if self.requested_send_capacity < floor {
+            self.requested_send_capacity = floor;
+        }
 
         tracing::trace!(
             "  sent stream data; available={}; buffered={}; id={:?}; max_buffer_size={} prev={}",
@@ -638,5 +648,109 @@ impl store::Next for NextResetExpire {
 impl ContentLength {
     pub fn is_head(&self) -> bool {
         matches!(*self, Self::Head)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::frame::StreamId;
+
+    /// When more data is buffered than MAX_WINDOW_SIZE, requested capacity is
+    /// capped. After writing MAX bytes, requested must still cover remaining
+    /// buffered data or capacity assignment never resumes.
+    #[test]
+    fn send_data_keeps_requested_floor_for_oversize_buffer() {
+        let win = 100u32;
+        let mut stream = Stream::new(StreamId::from(1), win, win);
+        // Simulate multiple send_data calls totaling more than MAX: requested
+        // capped at MAX while buffered is MAX + extra (as Prioritize does).
+        let extra = 150usize;
+        stream.buffered_send_data = MAX_WINDOW_SIZE as usize + extra;
+        stream.requested_send_capacity = MAX_WINDOW_SIZE;
+        stream
+            .send_flow
+            .assign_capacity(win)
+            .expect("assign");
+
+        // Pre-fix: requested would become MAX - win, then after writing MAX
+        // total would hit 0 with data still buffered. With floor, after this
+        // write remaining buffered is still > MAX so requested stays at MAX.
+        stream.send_data(win, usize::MAX);
+
+        assert_eq!(
+            stream.buffered_send_data,
+            MAX_WINDOW_SIZE as usize + extra - win as usize
+        );
+        assert!(stream.buffered_send_data > MAX_WINDOW_SIZE as usize);
+        assert_eq!(stream.requested_send_capacity, MAX_WINDOW_SIZE);
+    }
+
+    /// After writing enough that remaining buffered is below MAX, requested
+    /// tracks remaining buffered (not zero while data remains).
+    #[test]
+    fn send_data_requested_tracks_remaining_when_dropping_below_max() {
+        let win = 100u32;
+        let mut stream = Stream::new(StreamId::from(1), win, win);
+        // requested at MAX, buffered just barely over MAX
+        stream.buffered_send_data = MAX_WINDOW_SIZE as usize + 50;
+        stream.requested_send_capacity = MAX_WINDOW_SIZE;
+        stream
+            .send_flow
+            .assign_capacity(win)
+            .expect("assign");
+
+        stream.send_data(win, usize::MAX);
+
+        // remaining = MAX + 50 - 100 = MAX - 50
+        assert_eq!(
+            stream.buffered_send_data,
+            MAX_WINDOW_SIZE as usize + 50 - win as usize
+        );
+        // Pre-fix: MAX - 100. Post-fix floor = remaining buffered.
+        assert_eq!(
+            stream.requested_send_capacity,
+            (MAX_WINDOW_SIZE as usize + 50 - win as usize) as WindowSize
+        );
+    }
+
+    #[test]
+    fn send_data_decreases_requested_when_within_max() {
+        let win = 100u32;
+        let mut stream = Stream::new(StreamId::from(1), win, win);
+        stream.buffered_send_data = 80;
+        stream.requested_send_capacity = 80;
+        stream
+            .send_flow
+            .assign_capacity(win)
+            .expect("assign");
+
+        stream.send_data(30, usize::MAX);
+
+        assert_eq!(stream.buffered_send_data, 50);
+        assert_eq!(stream.requested_send_capacity, 50);
+    }
+
+    /// Critical hang case: last chunk of the MAX-capped request leaves remaining
+    /// buffered data; requested must not go to 0.
+    #[test]
+    fn send_data_does_not_zero_requested_while_buffered_remains() {
+        let win = 50u32;
+        let mut stream = Stream::new(StreamId::from(1), win, win);
+        // After prior writes, only `win` of requested left, but more buffered
+        // (over-max queue shrank requested to a leftover while buffered stayed
+        // larger). Simulate that invariant break which pre-fix left requested=0.
+        stream.buffered_send_data = 200;
+        stream.requested_send_capacity = win; // about to fully consume request
+        stream
+            .send_flow
+            .assign_capacity(win)
+            .expect("assign");
+
+        stream.send_data(win, usize::MAX);
+
+        assert_eq!(stream.buffered_send_data, 150);
+        // Pre-fix: requested = 0 → never assign capacity again for remaining 150.
+        assert_eq!(stream.requested_send_capacity, 150);
     }
 }

@@ -61,6 +61,7 @@
 | `fix/reject-server-enable-push-one` | F55 |
 | `fix/reserve-capacity-clamp-max-window` | F56 |
 | `fix/reject-101-switching-protocols` | F57 |
+| `fix/requested-capacity-floor-after-send` | F58 |
 
 ## experimental contains
-F1–F57, I1–I2, deadlock stress test, docs.
+F1–F58, I1–I2, deadlock stress test, docs.
