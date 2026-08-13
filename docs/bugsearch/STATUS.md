@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F43: 204/205/304 response HEADERS without END_STREAM accepted (body allowed).
+F44: `:authority` with userinfo (`user:pass@host`) accepted.
 
 ## Last actions
-1. Confirmed **F43**: 204 without EOS then DATA body was delivered; stream closed EndStream.
-2. Fix: reject status 204/205/304 without END_STREAM before `recv_open` (client).
-3. Regression: `no_content_without_end_stream_is_stream_error`.
+1. Confirmed **F44**: `user:pass@example.com` as `:authority` delivered to `poll_accept`.
+2. Fix: reject `@` in `:authority` in `server::Peer::convert_poll_message` before URI parse.
+3. Regression: `reject_authority_with_userinfo`. Note: HEAD non-empty DATA already PROTOCOL_ERROR via `ContentLength::Head`.
 
 ## Next recommended step
-1. Package PRs for F3–F43.
+1. Package PRs for F3–F44.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt.
+3. Further FC/wakeup / protocol hunt (outbound userinfo in URI → `:authority` optional follow-up).
 
 ## Blockers
 None.

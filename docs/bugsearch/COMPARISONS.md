@@ -102,5 +102,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F43):** client rejects 204/205/304 HEADERS without END_STREAM as stream PROTOCOL_ERROR.
 - **Verdict:** F43 aligns with HTTP message framing rules (HTTP semantics, not only HTTP/2 frame layer).
 
+### `:authority` userinfo
+- **RFC 9113 §8.3.1:** authority MUST NOT include deprecated userinfo for http/https.
+- **Rust h2 (pre-F44):** `http::uri::Authority` accepts `user:pass@host`; request delivered.
+- **Rust h2 (F44):** `@` in `:authority` → stream PROTOCOL_ERROR on server convert.
+- **Verdict:** F44 is a clear RFC MUST; inbound fix only (outbound URI→pseudo may still emit userinfo — residual).
+
 ## Planned comparisons
 - Residual #848 API design.

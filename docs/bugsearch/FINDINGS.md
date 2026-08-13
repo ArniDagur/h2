@@ -242,6 +242,12 @@
 - **Fix branch:** `fix/reject-no-content-without-end-stream`
 - **Change:** In `Recv::recv_headers` (client), if status is 204/205/304 and `!frame.is_end_stream()`, library reset PROTOCOL_ERROR before `recv_open`.
 
+### F44 — `:authority` with userinfo accepted
+- **Severity:** Medium (protocol / security): RFC 9113 §8.3.1: `:authority` MUST NOT include the deprecated userinfo subcomponent for `http`/`https`. `http::uri::Authority` accepts `user:pass@host`, so server `convert_poll_message` delivered the request (URI authority with credentials).
+- **Evidence:** HEADERS with `:authority: user:pass@example.com` — pre-fix request accepted; post-fix `RST_STREAM(PROTOCOL_ERROR)`. Regression `reject_authority_with_userinfo`.
+- **Fix branch:** `fix/reject-authority-userinfo`
+- **Change:** Reject when `:authority` bytes contain `@` before Authority parse. Also covers PUSH_PROMISE request conversion.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

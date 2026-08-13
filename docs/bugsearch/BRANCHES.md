@@ -47,6 +47,7 @@
 | `fix/goaway-requires-stream-zero` | F41 |
 | `fix/reject-host-authority-mismatch` | F42 |
 | `fix/reject-no-content-without-end-stream` | F43 |
+| `fix/reject-authority-userinfo` | F44 |
 
 ## experimental contains
-F1–F43, I1–I2, deadlock stress test, docs.
+F1–F44, I1–I2, deadlock stress test, docs.
