@@ -81,6 +81,9 @@
 - RecvStream drop after poll_data leaked unreleased in_flight (SendStream held) → F80.
 - SendStream drop without EOS did not RST while ResponseFuture lived → F81.
 - Local HEADER_TABLE_SIZE increase applied only on SETTINGS_ACK → F82 (F10 sibling; connection-kill).
+- Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
+- F81 scheduled-reset recv_task: woken on RST pop / pending_open abort `set_reset`, not at schedule time.
+- Auto-release DATA burst after RecvStream drop: window_size still decrements on consume; 4×16KiB without WU exceeds 65535 (peer FC error). WU-in-poll_ready would only help a peer that keeps sending past the advertised window, or a PING flood that never lets poll_next go Pending (fairness, not a silent correctness hang).
 - CodecFull poll_complete + send_data with task unset: codec write waker resumes; not a missed wake.
 - Graceful shutdown infinite wait for shutdown PING ACK: RFC 1-RTT; Go times out ~1s; h2 `abrupt_shutdown` is the escape — policy, not a library hang.
 - Pre-existing test failures (`recv_too_big_headers`, `srv_window_update_on_lower_stream_id`, `recv_invalid_push_promise_headers_is_stream_protocol_error`): stale after F74/F36/F32, not new library bugs.
@@ -115,3 +118,4 @@
 - `settings_decrease_wakes_poll_capacity_on_reclaim` drain loop is infinite after F29 (Ready whenever capacity>0); update test if that file is re-run.
 - Local ENABLE_PUSH mid-connection: Recv flag only set at build; no public API to change push after handshake — OK for current surface.
 - Non-EOS CL parse/mismatch errors after request EOS still after recv_open (stream not fully closed; RST works).
+- Optional: emit pending WINDOW_UPDATE from `poll_ready` (with PING ACK / refusals) so a control-frame flood cannot delay WU until `poll_next` is Pending. Fairness only.
