@@ -29,6 +29,19 @@ pub(crate) fn header_value_has_leading_trailing_ws(value: &[u8]) -> bool {
     }
 }
 
+/// RFC 9113 §8.3.1 / nghttp2: for http(s), `:path` is path-absolute (`/`…) or
+/// OPTIONS asterisk-form (`*`). Query-only forms like `?q=1` (accepted by
+/// `http::uri::PathAndQuery`) are not valid `:path` values.
+pub(crate) fn is_valid_path(path: &str, is_options: bool) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    if path == "*" {
+        return is_options;
+    }
+    path.as_bytes()[0] == b'/'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,6 +70,20 @@ mod tests {
         assert!(header_value_has_leading_trailing_ws(b"\t"));
         assert!(header_value_has_leading_trailing_ws(b"\tx"));
         assert!(header_value_has_leading_trailing_ws(b"x\t"));
+    }
+
+    #[test]
+    fn path_form() {
+        assert!(is_valid_path("/", false));
+        assert!(is_valid_path("/a", false));
+        assert!(is_valid_path("/?q=1", false));
+        assert!(is_valid_path("//x", false));
+        assert!(is_valid_path("*", true));
+        assert!(!is_valid_path("*", false));
+        assert!(!is_valid_path("", false));
+        assert!(!is_valid_path("?q=1", false));
+        assert!(!is_valid_path("?", false));
+        assert!(!is_valid_path("foo", false));
     }
 }
 
