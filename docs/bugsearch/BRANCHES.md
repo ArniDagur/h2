@@ -30,6 +30,7 @@
 | `fix/headers-after-eos-stream-closed` | F24 |
 | `fix/push-convert-before-reserve` | F25 |
 | `fix/cap-reserved-push-streams` | F26 |
+| `fix/push-validate-before-reserve` | F27 |
 
 ## experimental contains
-F1–F26, I1–I2, deadlock stress test, docs.
+F1–F27, I1–I2, deadlock stress test, docs.

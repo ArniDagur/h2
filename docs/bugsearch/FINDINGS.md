@@ -136,6 +136,12 @@
 - **Fix branch:** `fix/cap-reserved-push-streams`
 - **Change:** `Counts::num_reserved_streams` + `Stream::is_reserved`; `can_reserve_recv_stream` (open+reserved < max); PP `open` uses it; `recv_push_promise` incs reserved; `inc_num_recv_streams` clears reserved when promoting; `transition_after` clears reserved on close.
 
+### F27 — Push disabled / connection headers still burned stream ids after F25
+- **Severity:** Low (resource / API): F25 ordered convert before `reserve_local`, but `PeerDisabledServerPush` and connection-specific header rejection still ran inside `send_push_promise` after the id was reserved and a child inserted (then torn down).
+- **Evidence:** `push_request` with `Connection: close` then a valid GET push emits promised id **2** (not 4). Regression `push_request_connection_headers_do_not_burn_stream_id`.
+- **Fix branch:** `fix/push-validate-before-reserve`
+- **Change:** `is_push_enabled()` check before convert/reserve; connection-header check in `convert_push_message` (mirrors `Send::check_headers`).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F26: reserved PUSH_PROMISE streams uncapped (memory DoS).
+F27: push validation after reserve still burned stream ids (headers / push-disabled).
 
 ## Last actions
-1. Confirmed **F26**: `open(PushPromise)` checked `can_inc_num_recv_streams` but reserved streams never incremented until push HEADERS, so a peer could flood PP while open count stayed low.
-2. Fix: `num_reserved_streams` occupancy; refuse PP when open+reserved ≥ max; promote reserved→open without double-count; clear on close.
-3. Regression: `recv_push_promise_over_max_concurrent_is_refused` (max=1 → second PP `REFUSED_STREAM`).
+1. Confirmed **F27** (F25 residual): connection-specific headers and `is_push_enabled` were checked only in `send_push_promise` after `reserve_local`.
+2. Fix: check push enabled before convert/reserve; connection-header check in `convert_push_message`.
+3. Regression: `push_request_connection_headers_do_not_burn_stream_id`.
 
 ## Next recommended step
-1. Package PRs for F3–F26.
+1. Package PRs for F3–F27.
 2. Or residual #848 API ready-at-max-open.
 3. Or hunt new FC/wakeup/cancel bugs.
 
