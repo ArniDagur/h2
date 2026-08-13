@@ -145,7 +145,7 @@ impl Send {
 
         let mut pending_open = false;
         if counts.peer().is_local_init(frame.stream_id()) && !stream.is_pending_push {
-            self.prioritize.queue_open(stream);
+            self.prioritize.queue_open(stream, counts);
             pending_open = true;
         }
 

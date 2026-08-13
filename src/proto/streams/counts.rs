@@ -9,8 +9,14 @@ pub(super) struct Counts {
     /// Maximum number of locally initiated streams
     max_send_streams: usize,
 
-    /// Current number of remote initiated streams
+    /// Current number of locally initiated streams that are open (counted).
     num_send_streams: usize,
+
+    /// Locally initiated streams queued in `pending_open` (not yet counted).
+    ///
+    /// Used so `next_send_stream_will_reach_capacity` accounts for queued
+    /// streams, not only those already opened.
+    num_pending_open: usize,
 
     /// Maximum number of remote initiated streams
     max_recv_streams: usize,
@@ -48,6 +54,7 @@ impl Counts {
             peer,
             max_send_streams: config.initial_max_send_streams,
             num_send_streams: 0,
+            num_pending_open: 0,
             max_recv_streams: config.remote_max_initiated.unwrap_or(usize::MAX),
             num_recv_streams: 0,
             max_local_reset_streams: config.local_reset_max,
@@ -59,12 +66,27 @@ impl Counts {
         }
     }
 
-    /// Returns true when the next opened stream will reach capacity of outbound streams
+    /// Open + pending_open streams initiated by this peer.
+    pub fn send_stream_occupancy(&self) -> usize {
+        self.num_send_streams + self.num_pending_open
+    }
+
+    /// Returns true when the stream just queued into `pending_open` means
+    /// further requests on this handle should wait (`poll_ready`).
     ///
-    /// The number of client send streams is incremented in prioritize; send_request has to guess if
-    /// it should wait before allowing another request to be sent.
+    /// Counts both open and pending_open streams so a flood of requests before
+    /// any are popped from `pending_open` still engages per-handle backpressure.
     pub fn next_send_stream_will_reach_capacity(&self) -> bool {
-        self.max_send_streams <= (self.num_send_streams + 1)
+        self.send_stream_occupancy() >= self.max_send_streams
+    }
+
+    pub fn inc_num_pending_open(&mut self) {
+        self.num_pending_open += 1;
+    }
+
+    pub fn dec_num_pending_open(&mut self) {
+        assert!(self.num_pending_open > 0);
+        self.num_pending_open -= 1;
     }
 
     /// Returns the current peer

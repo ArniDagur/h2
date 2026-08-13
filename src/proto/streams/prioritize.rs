@@ -167,8 +167,10 @@ impl Prioritize {
         }
     }
 
-    pub fn queue_open(&mut self, stream: &mut store::Ptr) {
-        self.pending_open.push(stream);
+    pub fn queue_open(&mut self, stream: &mut store::Ptr, counts: &mut Counts) {
+        if self.pending_open.push(stream) {
+            counts.inc_num_pending_open();
+        }
     }
 
     /// Send a data frame
@@ -733,6 +735,7 @@ impl Prioritize {
 
     pub fn clear_pending_open(&mut self, store: &mut Store, counts: &mut Counts) {
         while let Some(stream) = self.pending_open.pop(store) {
+            counts.dec_num_pending_open();
             let is_pending_reset = stream.is_pending_reset_expiration();
             counts.transition_after(stream, is_pending_reset);
         }
@@ -896,7 +899,7 @@ impl Prioritize {
                                     counts.inc_num_send_streams(&mut pushed);
                                     self.pending_send.push(&mut pushed);
                                 } else {
-                                    self.queue_open(&mut pushed);
+                                    self.queue_open(&mut pushed, counts);
                                 }
                             }
                             Frame::PushPromise(pp)
@@ -963,6 +966,7 @@ impl Prioritize {
             if let Some(mut stream) = self.pending_open.pop(store) {
                 tracing::trace!("schedule_pending_open; stream={:?}", stream.id);
 
+                counts.dec_num_pending_open();
                 counts.inc_num_send_streams(&mut stream);
                 // Wake both: SendRequest may wait on open_task while SendStream
                 // poll_capacity/poll_reset wait on send_task.
