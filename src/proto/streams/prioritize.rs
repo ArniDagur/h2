@@ -711,13 +711,42 @@ impl Prioritize {
         }
     }
 
-    pub fn clear_queue<B>(&mut self, buffer: &mut Buffer<Frame<B>>, stream: &mut store::Ptr) {
+    pub fn clear_queue<B>(
+        &mut self,
+        buffer: &mut Buffer<Frame<B>>,
+        stream: &mut store::Ptr,
+        counts: &mut Counts,
+    ) {
         let span = tracing::trace_span!("clear_queue", ?stream.id);
         let _e = span.enter();
 
         // TODO: make this more efficient?
         while let Some(frame) = stream.pending_send.pop_front(buffer) {
             tracing::trace!(?frame, "dropping");
+            // PUSH_PROMISE never left the queue: the promised stream was never
+            // reserved on the wire. Free it locally (no RST — peer never saw it).
+            if let Frame::PushPromise(ref pp) = frame {
+                let promised_id = pp.promised_id();
+                if let Some(mut pushed) = stream.store_mut().find_mut(&promised_id) {
+                    tracing::trace!(
+                        "clear_queue; discard never-sent promised stream={:?}",
+                        promised_id
+                    );
+                    pushed.is_pending_push = false;
+                    // Nested frames on the child should not include another PP
+                    // before its own PP was sent; clear without re-entry.
+                    while let Some(_) = pushed.pending_send.pop_front(buffer) {}
+                    pushed.buffered_send_data = 0;
+                    pushed.requested_send_capacity = 0;
+                    if !pushed.state.is_closed() {
+                        pushed.set_reset(Reason::CANCEL, Initiator::Library);
+                    } else if let Some(reason) = pushed.state.get_scheduled_reset() {
+                        pushed.set_reset(reason, Initiator::Library);
+                    }
+                    let is_pending_reset = pushed.is_pending_reset_expiration();
+                    counts.transition_after(pushed, is_pending_reset);
+                }
+            }
         }
 
         stream.buffered_send_data = 0;
@@ -788,7 +817,7 @@ impl Prioritize {
                                 // response, which requires sending all queued DATA.
                                 if reason != Reason::NO_ERROR {
                                     stream.pending_send.push_front(buffer, frame.into());
-                                    self.clear_queue(buffer, &mut stream);
+                                    self.clear_queue(buffer, &mut stream, counts);
                                     self.reclaim_all_capacity(&mut stream, counts);
                                     self.pending_send.push(&mut stream);
                                     continue;
@@ -1041,7 +1070,7 @@ impl Prioritize {
             );
 
             // Never opened on the wire: discard any leftover frames and release.
-            self.clear_queue(buffer, &mut stream);
+            self.clear_queue(buffer, &mut stream, counts);
             self.reclaim_all_capacity(&mut stream, counts);
             if let Some(reason) = stream.state.get_scheduled_reset() {
                 stream.set_reset(reason, Initiator::Library);

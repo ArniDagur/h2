@@ -528,6 +528,64 @@ async fn push_request_between_data() {
     join(client, srv).await;
 }
 
+/// Resetting the parent before PUSH_PROMISE is flushed must discard the never-
+/// sent promised stream (no PP and no RST on the wire). Pre-fix, clear_queue
+/// dropped PP frames without freeing the child, leaving a pending_push orphan.
+#[tokio::test]
+async fn parent_reset_discards_unsent_push_promise_child() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        // Parent RST only — never-sent PP must not appear, nor a spurious RST(2).
+        client.recv_frame(frames::reset(1).cancel()).await;
+        let frame = tokio::time::timeout(std::time::Duration::from_millis(200), client.next()).await;
+        match frame {
+            Err(_) | Ok(None) => {}
+            Ok(Some(Ok(frame::Frame::GoAway(_)))) => {}
+            Ok(Some(Ok(frame::Frame::PushPromise(pp)))) => {
+                panic!("unsent PUSH_PROMISE should be discarded, got {:?}", pp);
+            }
+            Ok(Some(Ok(frame::Frame::Reset(r)))) => {
+                panic!("no RST for never-sent promised stream, got {:?}", r);
+            }
+            Ok(Some(other)) => panic!("unexpected: {:?}", other),
+        }
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        // Queue PP on parent, keep child handle so orphan would stay wired.
+        let push = stream.push_request(pushed_req).unwrap();
+        // Reset parent before any flush: clears queue including unsent PP.
+        stream.send_reset(Reason::CANCEL);
+        drop(push);
+
+        // Connection should drain without hanging on orphaned pending_push.
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Dropping a promised push stream before `send_response` must still RST after
 /// PUSH_PROMISE is on the wire. While `is_pending_push`, `schedule_send` is a
 /// no-op, so cancel had to be deferred until PUSH_PROMISE is flushed.

@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F18: cancelled pending_push child never sends RST after PUSH_PROMISE.
+F19: clear_queue dropped unsent PUSH_PROMISE without freeing promised child.
 
 ## Last actions
-1. Confirmed **F18**: dropping a server `SendPushedResponse` before `send_response` schedules CANCEL while `is_pending_push`; `schedule_send` is a no-op until PUSH_PROMISE is written, and the PP pop path only scheduled the child if `pending_send` was non-empty — so no RST after PP on the wire.
-2. Fix: wake on pending_push cancel; after writing PUSH_PROMISE, push scheduled-reset children onto `pending_send` for RST.
-3. Regression: `drop_pushed_stream_before_response_sends_reset`.
+1. Confirmed **F19** (F18 residual): parent `send_reset` / clear_queue discarded queued PUSH_PROMISE frames without closing the promised stream — orphaned `is_pending_push` child (no wire frames, slab leak until accidental free).
+2. Fix: when dropping a PushPromise in `clear_queue`, locally CANCEL the promised stream (never on wire → no RST) and `transition_after`.
+3. Regression: `parent_reset_discards_unsent_push_promise_child`.
 
 ## Next recommended step
-1. Package PRs for F3–F18.
+1. Package PRs for F3–F19.
 2. Or residual #848 / #30 pending_accept design.
 3. Or reserved-stream concurrency cap TODO.
 

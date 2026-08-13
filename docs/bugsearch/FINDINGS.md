@@ -88,6 +88,12 @@
 - **Fix branch:** `fix/pending-push-cancel-sends-reset`
 - **Change:** wake connection when cancelling `pending_push`; on PUSH_PROMISE pop, queue scheduled-reset children onto `pending_send` for RST emission.
 
+### F19 — `clear_queue` orphaned never-sent PUSH_PROMISE children
+- **Severity:** Medium (resource / cancel): Parent `send_reset` or other `clear_queue` paths dropped queued `PushPromise` frames without updating the promised stream. Child stayed `is_pending_push` in the store; peer never saw PP (so no RST required) but the local stream leaked and `send_response` on the handle could never leave pending_push.
+- **Evidence:** `parent_reset_discards_unsent_push_promise_child` — parent CANCEL only; no PP/RST for stream 2; connection closes cleanly.
+- **Fix branch:** `fix/clear-queue-discards-unsent-push-children`
+- **Change:** `clear_queue` takes `counts`; on dropped PushPromise, clear child frames, library CANCEL, `transition_after`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
