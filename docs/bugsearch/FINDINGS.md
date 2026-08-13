@@ -296,6 +296,12 @@
 - **Fix branch:** `fix/reject-connect-response-content-length`
 - **Change:** Set `stream.is_connect` when server accepts traditional CONNECT; `send_response` rejects CL when `is_connect && status.is_success()`.
 
+### F53 — Outbound mismatched multi Content-Length
+- **Severity:** Medium (protocol / API): RFC 9110 §8.6: multiple Content-Length fields with differing decimal values make the message invalid. F39 rejected this on receive; generate still allowed `HeaderMap` with `append("content-length", "5")` + `append(..., "6")` onto the wire.
+- **Evidence:** `send_request`/`send_response` with CL 5 and 6 pre-fix Ok; post-fix `UserError::MalformedHeaders`. Identical multi CL still accepted. Regressions: `send_request_rejects_mismatched_content_length`, `send_response_rejects_mismatched_content_length`.
+- **Fix branch:** `fix/reject-outbound-mismatched-content-length`
+- **Change:** `validate_outbound_content_length` walks `get_all(CONTENT_LENGTH)`; require all parse equal (or none present).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

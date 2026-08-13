@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` @ `6906474`
+**Branch tip:** `experimental/bugsearch` @ `57acd18`
 
 ## Current focus
-F52: server `send_response` 2xx CONNECT with Content-Length.
+F53: outbound mismatched multi Content-Length.
 
 ## Last actions
-1. Confirmed **F52**: server could generate 2xx CONNECT response with Content-Length (RFC 9110 §9.3.6 MUST NOT); F51 covered client ignore + request reject only.
-2. Fix: mark `is_connect` on traditional CONNECT request accept; `send_response` rejects CL when `is_connect && status.is_success()`.
-3. Regression: `send_connect_response_rejects_content_length`.
+1. Confirmed **F53**: `send_request`/`send_response` accepted mismatched multi `Content-Length` (RFC 9110 §8.6; F39 receive only).
+2. Fix: `validate_outbound_content_length` rejects unparseable or differing values → `MalformedHeaders`.
+3. Regressions: `send_request_rejects_mismatched_content_length`, `send_response_rejects_mismatched_content_length`.
 
 ## Next recommended step
-1. Package PRs for F3–F52.
+1. Package PRs for F3–F53.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 
