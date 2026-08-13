@@ -444,6 +444,114 @@ async fn recv_invalid_push_promise_headers_is_stream_protocol_error() {
     join(mock, h2).await;
 }
 
+/// Connection-specific headers in PUSH_PROMISE are stream-malformed.
+/// RFC 9113 §8.4: RST the *promised* stream; the parent request continues.
+#[tokio::test]
+async fn recv_push_promise_connection_header_resets_promised_not_parent() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(1, 2)
+                .request("GET", "https://example.com/style.css")
+                .field("connection", "close"),
+        )
+        .await;
+        srv.recv_frame(frames::reset(2).protocol_error()).await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/ok")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(3).response(204).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let check = async move {
+            let resp = resp.await.expect("parent must survive malformed PP");
+            assert_eq!(resp.status(), StatusCode::OK);
+        };
+        conn.drive(check).await;
+
+        let request = Request::builder()
+            .uri("https://example.com/ok")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let check = async move {
+            let resp = resp.await.expect("follow-up request");
+            assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        };
+        conn.drive(check).await;
+        conn.await.expect("client");
+    };
+
+    join(mock, h2).await;
+}
+
+/// Same as above, but the malformed field is in the first 16KiB of a
+/// CONTINUATION-spanning PUSH_PROMISE (F84 path).
+#[tokio::test]
+async fn recv_push_promise_connection_header_spanning_continuation() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let pad = "x".repeat(20_000);
+
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(1, 2)
+                .request("GET", "https://example.com/style.css")
+                .field("connection", "close")
+                .field("x-pad", pad),
+        )
+        .await;
+        srv.recv_frame(frames::reset(2).protocol_error()).await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let check = async move {
+            let resp = resp.await.expect("parent must survive malformed PP");
+            assert_eq!(resp.status(), StatusCode::OK);
+        };
+        conn.drive(check).await;
+        conn.await.expect("client");
+    };
+
+    join(mock, h2).await;
+}
+
 #[test]
 #[ignore]
 fn recv_push_promise_with_wrong_authority_is_stream_error() {

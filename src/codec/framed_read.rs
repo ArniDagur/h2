@@ -181,9 +181,7 @@ fn decode_frame(
                 // HPACK stays in sync; RST only once the block is complete.
                 Err(frame::Error::MalformedMessage) if !is_end_headers => {},
                 Err(frame::Error::MalformedMessage) => {
-                    let id = $head.stream_id();
-                    proto_err!(stream: "malformed header block; stream={:?}", id);
-                    return Err(Error::library_reset(id, Reason::PROTOCOL_ERROR));
+                    return Err(library_reset_malformed_block(frame.malformed_reset_id()));
                 },
                 Err(frame::Error::HeaderListWayTooLarge) => {
                     proto_err!(conn: "decoded header list size over abuse limit");
@@ -361,9 +359,9 @@ fn decode_frame(
                 Err(frame::Error::Hpack(hpack::DecoderError::NeedMore(_))) if !is_end_headers => {}
                 Err(frame::Error::MalformedMessage) if !is_end_headers => {}
                 Err(frame::Error::MalformedMessage) => {
-                    let id = head.stream_id();
-                    proto_err!(stream: "malformed CONTINUATION frame; stream={:?}", id);
-                    return Err(Error::library_reset(id, Reason::PROTOCOL_ERROR));
+                    return Err(library_reset_malformed_block(
+                        partial.frame.malformed_reset_id(),
+                    ));
                 }
                 Err(frame::Error::HeaderListWayTooLarge) => {
                     proto_err!(conn: "decoded CONTINUATION header list size over abuse limit");
@@ -433,6 +431,18 @@ where
     }
 }
 
+/// RST the header-block stream. PUSH_PROMISE uses the promised id
+/// (RFC 9113 §8.4); promised id 0 is a connection PROTOCOL_ERROR.
+fn library_reset_malformed_block(id: frame::StreamId) -> Error {
+    if id.is_zero() {
+        proto_err!(conn: "malformed PUSH_PROMISE promised stream id 0");
+        Error::library_go_away(Reason::PROTOCOL_ERROR)
+    } else {
+        proto_err!(stream: "malformed header block; stream={:?}", id);
+        Error::library_reset(id, Reason::PROTOCOL_ERROR)
+    }
+}
+
 fn map_err(err: io::Error) -> Error {
     if let io::ErrorKind::InvalidData = err.kind() {
         if let Some(custom) = err.get_ref() {
@@ -458,6 +468,13 @@ impl Continuable {
         match *self {
             Continuable::Headers(ref h) => h.is_over_size(),
             Continuable::PushPromise(ref p) => p.is_over_size(),
+        }
+    }
+
+    fn malformed_reset_id(&self) -> frame::StreamId {
+        match *self {
+            Continuable::Headers(ref h) => h.malformed_reset_id(),
+            Continuable::PushPromise(ref p) => p.malformed_reset_id(),
         }
     }
 

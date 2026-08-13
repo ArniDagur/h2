@@ -260,6 +260,11 @@ impl Headers {
         self.header_block.is_over_size
     }
 
+    /// Stream to RST when this block is stream-level malformed.
+    pub(crate) fn malformed_reset_id(&self) -> StreamId {
+        self.stream_id
+    }
+
     pub fn into_parts(self) -> (Pseudo, HeaderMap) {
         (self.header_block.pseudo, self.header_block.fields)
     }
@@ -529,6 +534,12 @@ impl PushPromise {
 
     pub fn is_over_size(&self) -> bool {
         self.header_block.is_over_size
+    }
+
+    /// RFC 9113 §8.4: malformed PUSH_PROMISE is a stream error on the
+    /// *promised* stream, not the parent.
+    pub(crate) fn malformed_reset_id(&self) -> StreamId {
+        self.promised_id
     }
 
     pub fn encode(
