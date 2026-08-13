@@ -299,6 +299,66 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
         }
 
+        // RFC 9113 §8.1.1: END_STREAM + non-zero Content-Length is malformed
+        // (except 304 representation length). When the request half already has
+        // EOS, recv_open fully closes the stream and send_reset becomes a no-op.
+        // Validate CL before recv_open so RST still reaches the peer (F68 did
+        // this for 204 only; apply to all statuses).
+        if frame.is_end_stream() && !frame.is_informational() {
+            let skip_cl = stream.content_length.is_head()
+                || (stream.is_connect
+                    && frame
+                        .pseudo()
+                        .status
+                        .map(|s| s.is_success())
+                        .unwrap_or(false));
+            if !skip_cl {
+                let mut cl_iter = frame.fields().get_all(http::header::CONTENT_LENGTH).iter();
+                if let Some(first) = cl_iter.next() {
+                    let content_length = match frame::parse_u64(first.as_bytes()) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            proto_err!(
+                                stream: "could not parse content-length; stream={:?}",
+                                stream.id
+                            );
+                            return Err(
+                                Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into()
+                            );
+                        }
+                    };
+                    for other in cl_iter {
+                        match frame::parse_u64(other.as_bytes()) {
+                            Ok(v) if v == content_length => {}
+                            _ => {
+                                proto_err!(
+                                    stream: "recv_headers: mismatched content-length values; stream={:?}",
+                                    stream.id
+                                );
+                                return Err(
+                                    Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into()
+                                );
+                            }
+                        }
+                    }
+                    if content_length > 0
+                        && frame
+                            .pseudo()
+                            .status
+                            .map_or(true, |status| status.as_u16() != 304)
+                    {
+                        proto_err!(
+                            stream: "recv_headers with END_STREAM: content-length is not zero; stream={:?}",
+                            stream.id
+                        );
+                        return Err(
+                            Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into()
+                        );
+                    }
+                }
+            }
+        }
+
         let is_initial = stream.state.recv_open(&frame)?;
 
         if is_initial {

@@ -2102,6 +2102,9 @@ async fn allow_empty_data_for_head() {
     join(srv, h2).await;
 }
 
+/// END_STREAM + non-zero Content-Length is malformed (RFC 9113 §8.1.1).
+/// Pre-F74: validated after recv_open so after request EOS the stream was
+/// fully closed and send_reset no-op'd (peer never saw RST).
 #[tokio::test]
 async fn reject_none_zero_content_length_header_with_end_stream() {
     h2_support::trace_init!();
@@ -2123,23 +2126,25 @@ async fn reject_none_zero_content_length_header_with_end_stream() {
                 .eos(),
         )
         .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
     };
 
     let h2 = async move {
-        let (mut client, h2) = client::Builder::new()
+        let (mut client, mut h2) = client::Builder::new()
             .handshake::<_, Bytes>(io)
             .await
             .unwrap();
-        tokio::spawn(async {
-            h2.await.expect("connection failed");
-        });
         let request = Request::builder()
             .method(Method::GET)
             .uri("https://example.com/")
             .body(())
             .unwrap();
         let (response, _) = client.send_request(request, true).unwrap();
-        let _ = response.await.unwrap_err();
+        let err = h2.drive(response).await.expect_err("non-zero CL with EOS");
+        assert!(err.is_reset());
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(client);
+        let _ = h2.await;
     };
 
     join(srv, h2).await;
