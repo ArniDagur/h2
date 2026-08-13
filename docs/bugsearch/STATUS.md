@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` @ `eef2aff`
+**Branch tip:** `experimental/bugsearch` (F57 @ `0ff732e` + docs)
 
 ## Current focus
 F57: 101 Switching Protocols not allowed in HTTP/2.
