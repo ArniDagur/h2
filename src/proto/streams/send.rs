@@ -599,6 +599,8 @@ impl Send {
 
                     self.prioritize
                         .assign_connection_capacity(total_reclaimed, store, counts);
+                    self.prioritize
+                        .debug_assert_send_capacity_conservation(store);
                 }
                 Ordering::Greater => {
                     let inc = val - old_val;
@@ -607,6 +609,8 @@ impl Send {
                         self.recv_stream_window_update(inc, buffer, &mut stream, counts, task)
                             .map_err(Error::library_go_away)
                     })?;
+                    self.prioritize
+                        .debug_assert_send_capacity_conservation(store);
                 }
                 Ordering::Equal => (),
             }

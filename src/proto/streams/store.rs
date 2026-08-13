@@ -215,6 +215,30 @@ impl Store {
     pub fn num_wired_streams(&self) -> usize {
         self.slab.len()
     }
+
+    /// Sum of per-stream send `available` (signed), for capacity conservation checks.
+    #[cfg(debug_assertions)]
+    pub(super) fn sum_send_available_signed(&self) -> i64 {
+        self.ids
+            .values()
+            .map(|idx| {
+                let stream = &self.slab[idx.0 as usize];
+                stream.send_flow.available_signed() as i64
+            })
+            .sum()
+    }
+
+    /// Returns true if any pending_open stream holds send capacity (should never).
+    #[cfg(debug_assertions)]
+    pub(super) fn pending_open_holds_send_capacity(&self) -> Option<StreamId> {
+        for (&id, idx) in self.ids.iter() {
+            let stream = &self.slab[idx.0 as usize];
+            if stream.is_pending_open && stream.send_flow.available_signed() != 0 {
+                return Some(id);
+            }
+        }
+        None
+    }
 }
 
 // While running h2 unit/integration tests, enable this debug assertion.

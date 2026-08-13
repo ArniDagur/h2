@@ -108,6 +108,36 @@ impl Prioritize {
         self.max_buffer_size
     }
 
+    /// Connection-level send capacity conservation:
+    /// `sum(stream.send available) + conn.available == conn.window`.
+    ///
+    /// Assigning capacity to streams moves available between stream and
+    /// connection; sending DATA decreases both the stream available and the
+    /// connection window by the same amount (via reclaim-then-send on the
+    /// connection flow controller).
+    #[cfg(debug_assertions)]
+    pub(super) fn debug_assert_send_capacity_conservation(&self, store: &Store) {
+        let stream_sum = store.sum_send_available_signed();
+        let conn_avail = self.flow.available_signed() as i64;
+        let conn_window = self.flow.window_size_signed() as i64;
+        debug_assert_eq!(
+            stream_sum + conn_avail,
+            conn_window,
+            "send capacity conservation violated: \
+             stream_available_sum={stream_sum} conn_available={conn_avail} \
+             conn_window={conn_window}"
+        );
+        if let Some(id) = store.pending_open_holds_send_capacity() {
+            panic!(
+                "pending_open stream {id:?} holds send capacity (starves open streams)"
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub(super) fn debug_assert_send_capacity_conservation(&self, _store: &Store) {}
+
     /// Queue a frame to be sent to the remote
     pub fn queue_frame<B>(
         &mut self,
@@ -322,6 +352,7 @@ impl Prioritize {
         self.flow.inc_window(inc)?;
 
         self.assign_connection_capacity(inc, store, counts);
+        self.debug_assert_send_capacity_conservation(store);
         Ok(())
     }
 
@@ -523,9 +554,11 @@ impl Prioritize {
         let max_frame_len = dst.max_send_frame_size();
 
         tracing::trace!("buffer_pending");
+        self.debug_assert_send_capacity_conservation(store);
 
         loop {
             if !dst.has_send_capacity() {
+                self.debug_assert_send_capacity_conservation(store);
                 return Ok(BufferStatus::CodecFull);
             }
 
@@ -551,6 +584,7 @@ impl Prioritize {
                     self.reclaim_frame(buffer, store, dst);
                 }
                 None => {
+                    self.debug_assert_send_capacity_conservation(store);
                     return Ok(BufferStatus::Complete);
                 }
             }

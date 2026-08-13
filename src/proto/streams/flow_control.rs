@@ -66,6 +66,18 @@ impl FlowControl {
         self.available
     }
 
+    /// Signed peer window (may be negative after SETTINGS decreases).
+    #[cfg(debug_assertions)]
+    pub(crate) fn window_size_signed(&self) -> i32 {
+        self.window_size.0
+    }
+
+    /// Signed available capacity (may be negative if over-claimed).
+    #[cfg(debug_assertions)]
+    pub(crate) fn available_signed(&self) -> i32 {
+        self.available.0
+    }
+
     /// Returns true if there is unavailable window capacity
     pub fn has_unavailable(&self) -> bool {
         if self.window_size < 0 {
