@@ -208,6 +208,21 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
         }
 
+        // RFC 9110 §8.6: server MUST NOT send Content-Length on 1xx.
+        // nghttp2 rejects any CL on 1xx; outbound send_informational already
+        // rejects. Pre-fix only skipped applying CL to the final body (F34)
+        // and still delivered the header to poll_informational.
+        if !counts.peer().is_server()
+            && frame.is_informational()
+            && frame.fields().contains_key(http::header::CONTENT_LENGTH)
+        {
+            proto_err!(
+                stream: "recv_headers: content-length on informational response; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
+        }
+
         // RFC 9113 §8.1: HTTP/2 does not support 101 Switching Protocols
         // (HTTP/1.1 Upgrade). Treat as a stream PROTOCOL_ERROR before recv_open.
         if !counts.peer().is_server() {
