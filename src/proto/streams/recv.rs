@@ -235,6 +235,26 @@ impl Recv {
                     );
                     return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
                 }
+                // RFC 9110 §8.6 / nghttp2: non-zero Content-Length on 204 is
+                // malformed. CL:0 is tolerated (widely sent; nghttp2 strips it).
+                // Check before recv_open so RST is still sent after request EOS
+                // (204+EOS would otherwise fully close the stream first).
+                if status.as_u16() == 204 {
+                    for val in frame.fields().get_all(http::header::CONTENT_LENGTH) {
+                        match frame::parse_u64(val.as_bytes()) {
+                            Ok(0) => {}
+                            _ => {
+                                proto_err!(
+                                    stream: "recv_headers: non-zero content-length on 204; stream={:?}",
+                                    stream.id
+                                );
+                                return Err(
+                                    Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into(),
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -326,12 +346,14 @@ impl Recv {
                 stream.content_length = ContentLength::Remaining(content_length);
                 // END_STREAM on headers frame with non-zero content-length is malformed.
                 // https://datatracker.ietf.org/doc/html/rfc9113#section-8.1.1
+                // Exception: 304 may carry representation length with empty body.
+                // 204 non-zero CL is rejected before recv_open (see above).
                 if frame.is_end_stream()
                     && content_length > 0
                     && frame
                         .pseudo()
                         .status
-                        .map_or(true, |status| status != 204 && status != 304)
+                        .map_or(true, |status| status.as_u16() != 304)
                 {
                     proto_err!(stream: "recv_headers with END_STREAM: content-length is not zero; stream={:?};", stream.id);
                     return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());

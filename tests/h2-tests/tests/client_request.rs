@@ -3737,6 +3737,115 @@ async fn no_content_without_end_stream_is_stream_error() {
     join(srv, client).await;
 }
 
+/// RFC 9110 §8.6 / nghttp2: non-zero Content-Length on 204 is malformed.
+/// Pre-fix accepted CL:5 with END_STREAM (exception intended for 304 only).
+#[tokio::test]
+async fn no_content_nonzero_content_length_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::headers(1)
+                .response(204)
+                .field("content-length", 5)
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let err = conn
+            .drive(resp)
+            .await
+            .expect_err("204 with non-zero Content-Length must error");
+        assert!(err.is_reset(), "expected stream reset");
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+
+/// CL:0 on 204 is tolerated (nghttp2 strips; widely deployed).
+/// 304 MAY advertise representation length with empty body.
+#[tokio::test]
+async fn no_content_zero_content_length_and_304_cl_accepted() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::headers(1)
+                .response(204)
+                .field("content-length", 0)
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::headers(3)
+                .response(304)
+                .field("content-length", 100)
+                .eos(),
+        )
+        .await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("204 CL:0 ok");
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("304 with CL ok");
+        assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn mismatched_content_length_headers_is_stream_error() {
     h2_support::trace_init!();
