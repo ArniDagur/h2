@@ -1071,6 +1071,10 @@ impl HeaderBlock {
                 Path(v) => set_pseudo!(path, v),
                 Protocol(v) => set_pseudo!(protocol, v),
                 Status(v) => set_pseudo!(status, v),
+                Malformed => {
+                    tracing::trace!("load_hpack; header name or value is stream-malformed");
+                    malformed = true;
+                }
             }
 
             ControlFlow::Continue(())
@@ -1518,6 +1522,29 @@ mod test {
         assert!(
             matches!(err, Error::MalformedMessage),
             "expected MalformedMessage after completing the block, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn uppercase_header_name_is_malformed_not_hpack_error() {
+        // 0x00 literal name "X-Foo" / "bar" after GET https://example.com/
+        let mut hpack = vec![0x82u8, 0x87, 0x84, 0x41, 0x0b];
+        hpack.extend_from_slice(b"example.com");
+        hpack.extend_from_slice(&[0x00, 0x05]);
+        hpack.extend_from_slice(b"X-Foo");
+        hpack.extend_from_slice(&[0x03]);
+        hpack.extend_from_slice(b"bar");
+
+        let mut decoder = crate::hpack::Decoder::new(4096);
+        let head = Head::new(Kind::Headers, END_HEADERS, 1.into());
+        let (mut headers, _) = Headers::load(head, BytesMut::new()).unwrap();
+        let mut chunk = BytesMut::from(&hpack[..]);
+        let err = headers
+            .load_hpack(&mut chunk, 16 << 20, &mut decoder)
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::MalformedMessage),
+            "uppercase field name must be stream malformed, not HPACK/GOAWAY; got {err:?}"
         );
     }
 }

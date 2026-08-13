@@ -17,6 +17,9 @@ pub enum Header<T = HeaderName> {
     Path(BytesStr),
     Protocol(Protocol),
     Status(StatusCode),
+    /// HTTP/2-invalid name or value (uppercase name, CTL in value, unknown
+    /// pseudo, …). HPACK bytes were valid; treat as stream malformed.
+    Malformed,
 }
 
 /// The header field name
@@ -56,6 +59,7 @@ impl Header<Option<HeaderName>> {
             Path(v) => Path(v),
             Protocol(v) => Protocol(v),
             Status(v) => Status(v),
+            Malformed => Malformed,
         })
     }
 }
@@ -67,36 +71,44 @@ impl Header {
         }
         if name[0] == b':' {
             match &name[1..] {
-                b"authority" => {
-                    let value = BytesStr::try_from(value)?;
-                    Ok(Header::Authority(value))
-                }
-                b"method" => {
-                    let method = Method::from_bytes(&value)?;
-                    Ok(Header::Method(method))
-                }
-                b"scheme" => {
-                    let value = BytesStr::try_from(value)?;
-                    Ok(Header::Scheme(value))
-                }
-                b"path" => {
-                    let value = BytesStr::try_from(value)?;
-                    Ok(Header::Path(value))
-                }
-                b"protocol" => {
-                    let value = Protocol::try_from(value)?;
-                    Ok(Header::Protocol(value))
-                }
-                b"status" => {
-                    let status = StatusCode::from_bytes(&value)?;
-                    Ok(Header::Status(status))
-                }
-                _ => Err(DecoderError::InvalidPseudoheader),
+                b"authority" => match BytesStr::try_from(value) {
+                    Ok(value) => Ok(Header::Authority(value)),
+                    Err(_) => Ok(Header::Malformed),
+                },
+                b"method" => match Method::from_bytes(&value) {
+                    Ok(method) => Ok(Header::Method(method)),
+                    Err(_) => Ok(Header::Malformed),
+                },
+                b"scheme" => match BytesStr::try_from(value) {
+                    Ok(value) => Ok(Header::Scheme(value)),
+                    Err(_) => Ok(Header::Malformed),
+                },
+                b"path" => match BytesStr::try_from(value) {
+                    Ok(value) => Ok(Header::Path(value)),
+                    Err(_) => Ok(Header::Malformed),
+                },
+                b"protocol" => match Protocol::try_from(value) {
+                    Ok(value) => Ok(Header::Protocol(value)),
+                    Err(_) => Ok(Header::Malformed),
+                },
+                b"status" => match StatusCode::from_bytes(&value) {
+                    Ok(status) => Ok(Header::Status(status)),
+                    Err(_) => Ok(Header::Malformed),
+                },
+                // Unknown pseudo is stream-malformed, not HPACK failure.
+                _ => Ok(Header::Malformed),
             }
         } else {
-            // HTTP/2 requires lower case header names
-            let name = HeaderName::from_lowercase(&name)?;
-            let value = HeaderValue::from_bytes(&value)?;
+            // HTTP/2 requires lowercase field names; invalid names/values are
+            // stream malformed (RFC 9113 §8.2.1), not a connection HPACK error.
+            let name = match HeaderName::from_lowercase(&name) {
+                Ok(name) => name,
+                Err(_) => return Ok(Header::Malformed),
+            };
+            let value = match HeaderValue::from_bytes(&value) {
+                Ok(value) => value,
+                Err(_) => return Ok(Header::Malformed),
+            };
 
             Ok(Header::Field { name, value })
         }
@@ -114,6 +126,7 @@ impl Header {
             Header::Path(ref v) => 32 + 5 + v.len(),
             Header::Protocol(ref v) => 32 + 9 + v.as_str().len(),
             Header::Status(_) => 32 + 7 + 3,
+            Header::Malformed => 0,
         }
     }
 
@@ -127,6 +140,7 @@ impl Header {
             Header::Path(..) => Name::Path,
             Header::Protocol(..) => Name::Protocol,
             Header::Status(..) => Name::Status,
+            Header::Malformed => unreachable!("malformed headers are not indexed"),
         }
     }
 
@@ -139,6 +153,7 @@ impl Header {
             Header::Path(ref v) => v.as_ref(),
             Header::Protocol(ref v) => v.as_ref(),
             Header::Status(ref v) => v.as_str().as_ref(),
+            Header::Malformed => b"",
         }
     }
 
@@ -175,7 +190,12 @@ impl Header {
                 Header::Status(ref b) => a == b,
                 _ => false,
             },
+            Header::Malformed => matches!(*other, Header::Malformed),
         }
+    }
+
+    pub fn is_malformed(&self) -> bool {
+        matches!(*self, Header::Malformed)
     }
 
     pub fn is_sensitive(&self) -> bool {
@@ -222,6 +242,7 @@ impl From<Header> for Header<Option<HeaderName>> {
             Header::Path(v) => Header::Path(v),
             Header::Protocol(v) => Header::Protocol(v),
             Header::Status(v) => Header::Status(v),
+            Header::Malformed => Header::Malformed,
         }
     }
 }

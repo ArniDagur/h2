@@ -32,6 +32,8 @@ pub enum DecoderError {
     InvalidHuffmanCode,
     InvalidUtf8,
     InvalidStatusCode,
+    /// Unknown `:pseudo` is stream-malformed (`Header::Malformed`), not this.
+    #[allow(dead_code)]
     InvalidPseudoheader,
     InvalidMaxDynamicSize,
     IntegerOverflow,
@@ -224,8 +226,10 @@ impl Decoder {
                     can_resize = false;
                     let entry = self.decode_literal(src, true)?;
 
-                    // Insert the header into the table
-                    self.table.insert(entry.clone());
+                    // Do not index stream-malformed fields (uppercase names, …).
+                    if !entry.is_malformed() {
+                        self.table.insert(entry.clone());
+                    }
                     consume(src);
 
                     if f(entry).is_break() {
@@ -316,7 +320,11 @@ impl Decoder {
             let e = self.table.get(table_idx)?;
             let value = self.decode_string(buf)?;
 
-            e.name().into_entry(value)
+            match e.name().into_entry(value) {
+                Ok(h) => Ok(h),
+                // Invalid value on an indexed name: HPACK is fine, HTTP is not.
+                Err(_) => Ok(Header::Malformed),
+            }
         }
     }
 

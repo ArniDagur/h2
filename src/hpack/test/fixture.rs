@@ -139,6 +139,7 @@ fn key_str(e: &Header) -> &str {
         Header::Path(..) => ":path",
         Header::Protocol(..) => ":protocol",
         Header::Status(..) => ":status",
+        Header::Malformed => "<malformed>",
     }
 }
 
@@ -151,6 +152,7 @@ fn value_str(e: &Header) -> &str {
         Header::Path(ref v) => v,
         Header::Protocol(ref v) => v.as_str(),
         Header::Status(ref v) => v.as_str(),
+        Header::Malformed => "",
     }
 }
 
