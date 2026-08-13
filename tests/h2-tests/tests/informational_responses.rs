@@ -602,6 +602,68 @@ async fn too_many_informational_responses_is_stream_error() {
     join(srv, client).await;
 }
 
+/// RFC 9110 §8.6: server MUST NOT send Content-Length on 1xx.
+#[tokio::test]
+async fn send_informational_rejects_content_length() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("POST", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(StatusCode::CONTINUE))
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(StatusCode::OK).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        let bad = Response::builder()
+            .status(StatusCode::CONTINUE)
+            .header("content-length", "0")
+            .body(())
+            .unwrap();
+        let err = stream
+            .send_informational(bad)
+            .expect_err("1xx with Content-Length must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        stream
+            .send_informational(
+                Response::builder()
+                    .status(StatusCode::CONTINUE)
+                    .body(())
+                    .unwrap(),
+            )
+            .expect("1xx without Content-Length ok");
+        stream
+            .send_response(
+                Response::builder().status(StatusCode::OK).body(()).unwrap(),
+                true,
+            )
+            .unwrap();
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Docs: send_informational errors after the final response was sent.
 /// Pre-fix still queued 1xx HEADERS on a closed/half-closed send half.
 #[tokio::test]

@@ -1278,6 +1278,11 @@ impl<B> StreamRef<B> {
     }
 
     pub fn send_informational_headers(&mut self, frame: frame::Headers) -> Result<(), UserError> {
+        // RFC 9110 §8.6: server MUST NOT send Content-Length on 1xx.
+        if frame.fields().contains_key(http::header::CONTENT_LENGTH) {
+            return Err(UserError::MalformedHeaders);
+        }
+
         let mut me = self.opaque.inner.lock().unwrap();
         let me = &mut *me;
 
@@ -1332,6 +1337,21 @@ impl<B> StreamRef<B> {
         if !end_of_stream {
             match response.status().as_u16() {
                 204 | 205 | 304 => return Err(UserError::UnexpectedFrameType),
+                _ => {}
+            }
+        }
+
+        // RFC 9110 §8.6: server MUST NOT send Content-Length on 204.
+        // 205 requires an empty content section — non-zero CL is malformed.
+        // 304 MAY include Content-Length of the selected representation.
+        if response.headers().contains_key(http::header::CONTENT_LENGTH) {
+            match response.status().as_u16() {
+                204 => return Err(UserError::MalformedHeaders),
+                205 => {
+                    if !is_content_length_zero(response.headers()) {
+                        return Err(UserError::MalformedHeaders);
+                    }
+                }
                 _ => {}
             }
         }
@@ -1682,6 +1702,13 @@ impl Drop for OpaqueStreamRef {
     fn drop(&mut self) {
         drop_stream_ref(&self.inner, self.key);
     }
+}
+
+fn is_content_length_zero(headers: &http::HeaderMap) -> bool {
+    headers
+        .get_all(http::header::CONTENT_LENGTH)
+        .iter()
+        .all(|v| frame::parse_u64(v.as_bytes()).map(|n| n == 0).unwrap_or(false))
 }
 
 // TODO: Move back in fn above

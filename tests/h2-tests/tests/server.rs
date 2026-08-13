@@ -2106,6 +2106,68 @@ async fn send_response_rejects_informational_status() {
     join(client, srv).await;
 }
 
+/// RFC 9110 §8.6: server MUST NOT send Content-Length on 204.
+/// 205 requires empty content — non-zero CL is rejected; 304 MAY include CL.
+#[tokio::test]
+async fn send_response_rejects_content_length_on_no_content() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(204).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        let with_cl = Response::builder()
+            .status(204)
+            .header("content-length", "5")
+            .body(())
+            .unwrap();
+        let err = stream
+            .send_response(with_cl, true)
+            .expect_err("204 with Content-Length must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        let nonzero_205 = Response::builder()
+            .status(205)
+            .header("content-length", "1")
+            .body(())
+            .unwrap();
+        let err = stream
+            .send_response(nonzero_205, true)
+            .expect_err("205 with non-zero Content-Length must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        stream
+            .send_response(Response::builder().status(204).body(()).unwrap(), true)
+            .expect("204 without Content-Length ok");
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9110: 204/205/304 are terminated by the header section.
 /// send_response(..., false) would emit HEADERS without END_STREAM (peers RST via F43).
 #[tokio::test]
