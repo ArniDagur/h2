@@ -119,7 +119,9 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F46):** `send_response` rejects informational status; `send_informational` remains for interim 1xx.
 - **Rust h2 (pre-F48):** `send_informational` after `send_response` still queued 1xx (docs claimed error).
 - **Rust h2 (F48):** reject when local half is past AwaitingHeaders.
-- **Verdict:** F46+F48 align generate path with interim-before-final semantics and documented API.
+- **Rust h2 (pre-F54):** `poll_informational` after final headers consumed could hang on DATA at queue head.
+- **Rust h2 (F54):** non-1xx queue head / post-headers state → `Ready(None)`.
+- **Verdict:** F46+F48+F54 align generate + client poll for interim-before-final semantics.
 
 ### Content-Length on 1xx / 204 / 205 generate path
 - **RFC 9110 §8.6:** server MUST NOT send Content-Length on 1xx or 204; 205 empty content; 304 MAY include CL.

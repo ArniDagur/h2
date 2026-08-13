@@ -302,6 +302,12 @@
 - **Fix branch:** `fix/reject-outbound-mismatched-content-length`
 - **Change:** `validate_outbound_content_length` walks `get_all(CONTENT_LENGTH)`; require all parse equal (or none present).
 
+### F54 — `poll_informational` hang after final response
+- **Severity:** Medium (hang / API): Docs promise `Ready(None)` when no more 1xx are expected. After the final response was taken (headers consumed), DATA/trailers at the head of `pending_recv` were pushed back and the code fell through to `ensure_recv_open` → `Pending` while the receive half stayed open for the body — hang until timeout/cancel.
+- **Evidence:** 200 headers (no EOS) + body DATA; after `drive(response_future)`, `poll_informational` timed out pre-fix; post-fix `None` promptly. Existing 1xx drain tests still pass. Regression `poll_informational_after_final_response_is_none`.
+- **Fix branch:** `fix/poll-informational-after-final-none`
+- **Change:** Non-1xx queue head → `Ready(None)`; empty queue + `!is_recv_headers` → `Ready(None)`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
