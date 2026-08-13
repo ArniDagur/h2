@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F58 fix pending merge)
+**Branch tip:** `experimental/bugsearch` @ `3eecebb`
 
 ## Current focus
 F58: `requested_send_capacity` drops to 0 while buffered DATA remains.
