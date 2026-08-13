@@ -1000,6 +1000,9 @@ impl Recv {
             // killed the connection for a stream-scoped violation. Match Go
             // `processData` (streamError STREAM_CLOSED) and still honor
             // connection flow control for the rejected bytes.
+            //
+            // Never-sent `pending_open` ids are still idle on the wire — that
+            // case is a connection PROTOCOL_ERROR in `Streams::recv_data` (F79).
             proto_err!(
                 stream: "unexpected DATA frame; stream={:?}; state={:?}",
                 stream.id,

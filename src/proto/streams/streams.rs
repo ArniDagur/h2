@@ -708,6 +708,15 @@ impl Inner {
             }
         };
 
+        // pending_open: HEADERS never left the local queue, so the peer still
+        // sees this id as idle. RFC 9113 §5.1: any frame other than HEADERS or
+        // PRIORITY on idle is a connection PROTOCOL_ERROR. F23's STREAM_CLOSED
+        // path is for streams that were open then recv-closed, not never-sent.
+        if stream.is_pending_open {
+            proto_err!(conn: "recv_data: received frame on idle stream {:?}", id);
+            return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+        }
+
         let actions = &mut self.actions;
         let mut send_buffer = send_buffer.inner.lock().unwrap();
         let send_buffer = &mut *send_buffer;
