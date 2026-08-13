@@ -422,33 +422,22 @@ impl Send {
 
         let capacity = self.capacity(stream);
 
-        // Never return Ready(Ok(0)) (#898). A SETTINGS decrease can clear
-        // assigned capacity after `send_capacity_inc` was set.
+        // Never return Ready(Ok(0)) (#898). Usable capacity is
+        // min(available, max_send_buffer_size) - buffered. When that is 0,
+        // wait for assignment or buffer drain (send_capacity_inc / notify).
+        //
+        // When capacity > 0, always Ready — including when assigned is still
+        // below requested. Callers must be able to send the usable slice of a
+        // large reservation without waiting for full assignment (window or
+        // max_send_buffer_size may hold available below requested).
         if capacity == 0 {
             stream.send_capacity_inc = false;
             stream.wait_send(cx);
             return Poll::Pending;
         }
 
-        if stream.send_capacity_inc {
-            stream.send_capacity_inc = false;
-            return Poll::Ready(Some(Ok(capacity)));
-        }
-
-        // Capacity is already assigned, but there was no fresh increase
-        // notification. That happens after SETTINGS_INITIAL_WINDOW_SIZE
-        // shrinks a stream's assignment: available stays > 0 while
-        // `send_capacity_inc` is false. If the reservation is fully
-        // assigned, return Ready so callers are not stranded. If more was
-        // requested, wait for the next assignment (connection or stream WU).
-        let assigned = stream.send_flow.available().as_size();
-        let requested = stream.requested_send_capacity;
-        if assigned >= requested {
-            return Poll::Ready(Some(Ok(capacity)));
-        }
-
-        stream.wait_send(cx);
-        Poll::Pending
+        stream.send_capacity_inc = false;
+        Poll::Ready(Some(Ok(capacity)))
     }
 
     /// Current available stream send capacity

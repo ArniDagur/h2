@@ -2643,6 +2643,82 @@ async fn max_send_buffer_size_overflow() {
     join(srv, client).await;
 }
 
+/// When `max_send_buffer_size` is below the remaining reservation and the
+/// stream window only partially covers it, `poll_capacity` must still return
+/// Ready for the usable `capacity()` slice. Pre-fix waited until
+/// `assigned >= requested`, which hangs after the first send (available <
+/// requested but capacity > 0).
+#[tokio::test]
+async fn poll_capacity_ready_with_usable_capacity_below_requested() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().initial_window_size(10))
+            .await;
+        assert_default_settings!(settings);
+        srv.recv_frame(frames::headers(1).request("POST", "https://www.example.com/"))
+            .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        // First 5 bytes under max_buffer=5; second 5 under remaining window.
+        srv.recv_frame(frames::data(1, &[0; 5][..])).await;
+        srv.recv_frame(frames::data(1, &[0; 5][..])).await;
+        // Peer grants more window for the rest of the reservation.
+        srv.send_frame(frames::window_update(1, 10)).await;
+        srv.recv_frame(frames::data(1, &[0; 5][..])).await;
+        srv.recv_frame(frames::data(1, &[0; 5][..])).await;
+        srv.recv_frame(frames::data(1, &[][..]).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::Builder::new()
+            .max_send_buffer_size(5)
+            .handshake::<_, Bytes>(io)
+            .await
+            .unwrap();
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://www.example.com/")
+            .body(())
+            .unwrap();
+
+        let (response, mut stream) = client.send_request(request, false).unwrap();
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Request more than the peer window (10) and more than max buffer (5).
+        stream.reserve_capacity(20);
+        assert_eq!(stream.capacity(), 5);
+
+        let mut sent = 0usize;
+        let buf = [0u8; 20];
+        // Without the fix, the second poll_capacity hangs after the first send:
+        // available=5, requested=15, capacity=5 but assigned < requested.
+        for _ in 0..4 {
+            let cap = h2
+                .drive(async {
+                    poll_fn(|cx| stream.poll_capacity(cx))
+                        .await
+                        .expect("capacity stream open")
+                        .expect("capacity ok") as usize
+                })
+                .await;
+            assert!(cap > 0, "usable capacity must be Ready, got 0");
+            let n = cap.min(20 - sent);
+            stream
+                .send_data(buf[sent..sent + n].to_vec().into(), false)
+                .unwrap();
+            sent += n;
+        }
+        assert_eq!(sent, 20);
+        stream.send_data(Bytes::new(), true).unwrap();
+        h2.await.unwrap();
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn max_send_buffer_size_poll_capacity_wakes_task() {
     h2_support::trace_init!();
