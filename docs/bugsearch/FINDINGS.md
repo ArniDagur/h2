@@ -24,12 +24,14 @@
 - **Fix branch:** `fix/push-promise-wake-on-parent-end`
 
 ### F8 — SETTINGS decrease reclaim does not wake `poll_capacity` waiters
-- **Severity:** Medium (missed wakeup): when `SETTINGS_INITIAL_WINDOW_SIZE` shrinks, excess connection capacity is reclaimed from streams (`reclaimed > 0`) but producers parked on `poll_capacity` were not notified (code TODO). Waiters stayed `Pending` until some later capacity *increase*.
-- **Relation to F6:** F6 made `poll_capacity` return `Ready` when already fully assigned without a flag; F8 wakes waiters that were pending for *more* capacity so they observe the post-reclaim assignment (via `notify_capacity` / `send_capacity_inc`).
-- **Evidence:** `settings_decrease_wakes_poll_capacity_on_reclaim` times out without notify; passes with `notify_capacity` after reclaim.
 - **Fix branch:** `fix/settings-decrease-wake-capacity`
-- **Change:** after reclaim in `apply_remote_settings` decrease path, `stream.notify_capacity()` if `reclaimed > 0`. Also hardened `unclaimed_capacity` for negative windows.
-- **Note:** `dec_send_window` i32 underflow → `FLOW_CONTROL_ERROR` / GOAWAY is intentional for extreme values; not treated as a separate bug.
+
+### F9 — `pending_open` not counted toward send concurrency backpressure
+- **Severity:** Medium (resource / API): `next_send_stream_will_reach_capacity` used only `num_send_streams`, so many `send_request`s before `poll_complete` could enqueue unbounded `pending_open` while open count stayed 0 (per-handle `pending` never set → no `Rejected`).
+- **Evidence:** With max=2 after SETTINGS applied, two undriven `send_request`s fill occupancy; third is `Rejected` with fix. Pre-fix third would succeed.
+- **Fix branch:** `fix/pending-open-occupancy-backpressure`
+- **Change:** `Counts::num_pending_open` inc/dec on queue/pop/clear; occupancy = open + pending_open for `next_send_stream_will_reach_capacity`.
+- **Related #848:** Cloned handles still clear `pending` and report Ready when *open* count is at max but no per-handle pending stream — intentional queue-beyond-max design used by existing tests; not changed.
 
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
@@ -38,9 +40,9 @@
 ## Dismissed
 ### S1 — #853 — likely fixed by #860
 ### S2 — sticky poll → F4
-### #878 — fixed upstream `#893`
-### #880 — fixed upstream `#896`
-### `dec_send_window` underflow — only at i32 extremes; library GOAWAY is acceptable
+### #878 / #880 — fixed upstream
+### `dec_send_window` underflow — i32 extremes only
+### #848 clone ready-at-max-open — design (queue beyond max); F9 only fixes pending_open occupancy hole
 
 ## Suspects
 None active.
