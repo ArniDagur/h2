@@ -1148,6 +1148,62 @@ async fn send_stream_poll_reset() {
     join(srv, client).await;
 }
 
+
+/// Flooding `send_request` before streams leave `pending_open` must engage
+/// per-handle backpressure once open+pending_open reaches max concurrent.
+#[tokio::test]
+async fn pending_open_counts_toward_send_capacity_backpressure() {
+    h2_support::trace_init!();
+
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(2))
+            .await;
+        assert_default_settings!(settings);
+        for id in [1u32, 3, 5] {
+            srv.recv_frame(
+                frames::headers(id)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+            srv.send_frame(frames::headers(id).response(200).eos()).await;
+        }
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+
+        let req = || {
+            Request::builder()
+                .uri("https://example.com/")
+                .body(())
+                .unwrap()
+        };
+
+        let (warm, _) = client.send_request(req(), true).unwrap();
+        conn.drive(warm).await.unwrap();
+        assert_eq!(conn.max_concurrent_send_streams(), 2);
+
+        let (r1, _) = client.send_request(req(), true).unwrap();
+        let (r2, _) = client.send_request(req(), true).unwrap();
+        let err = client.send_request(req(), true).unwrap_err();
+        assert_eq!(err.to_string(), "user error: rejected");
+
+        conn.drive(async {
+            assert_eq!(r1.await.unwrap().status(), StatusCode::OK);
+            assert_eq!(r2.await.unwrap().status(), StatusCode::OK);
+        })
+        .await;
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn drop_pending_open() {
     // This test checks that a stream queued for pending open behaves correctly when its
