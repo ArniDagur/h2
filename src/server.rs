@@ -1690,7 +1690,7 @@ impl proto::Peer for Peer {
     }
 
     fn convert_poll_message(
-        pseudo: Pseudo,
+        mut pseudo: Pseudo,
         fields: HeaderMap,
         stream_id: StreamId,
     ) -> Result<Self::Poll, Error> {
@@ -1720,8 +1720,15 @@ impl proto::Peer for Peer {
         let has_protocol = pseudo.protocol.is_some();
         if has_protocol {
             if is_connect {
-                // Assert that we have the right type.
-                b = b.extension::<crate::ext::Protocol>(pseudo.protocol.unwrap());
+                let protocol = pseudo.protocol.take().unwrap();
+                // RFC 8441 / nghttp2: empty :protocol is invalid (empty pseudo
+                // values are rejected). Leading/trailing SP/HTAB also forbidden
+                // (RFC 9113 §8.2.1 applies to pseudo-header field values).
+                let p = protocol.as_str();
+                if p.is_empty() || frame::header_value_has_leading_trailing_ws(p.as_bytes()) {
+                    malformed!("malformed headers: empty or whitespace :protocol");
+                }
+                b = b.extension::<crate::ext::Protocol>(protocol);
             } else {
                 malformed!("malformed headers: :protocol on non-CONNECT request");
             }

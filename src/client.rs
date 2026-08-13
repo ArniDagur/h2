@@ -1632,6 +1632,15 @@ impl Peer {
 
         let is_connect = method == Method::CONNECT;
 
+        // RFC 8441 / nghttp2: empty :protocol is invalid. Also reject SP/HTAB
+        // padding on the value (RFC 9113 §8.2.1).
+        if let Some(ref p) = protocol {
+            let s = p.as_str();
+            if s.is_empty() || frame::header_value_has_leading_trailing_ws(s.as_bytes()) {
+                return Err(UserError::MalformedHeaders.into());
+            }
+        }
+
         // Build the set pseudo header set. All requests will include `method`
         // and `path`.
         let mut pseudo = Pseudo::request(method, uri, protocol);

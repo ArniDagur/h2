@@ -2189,6 +2189,52 @@ async fn reject_pseudo_protocol_on_non_connect_request() {
     join(client, srv).await;
 }
 
+/// nghttp2 rejects empty pseudo-header values; empty :protocol is not a valid
+/// ALPN token (RFC 8441). Pre-fix accepted empty Protocol and treated the
+/// request as extended CONNECT.
+#[tokio::test]
+async fn reject_empty_protocol_pseudo() {
+    h2_support::trace_init!();
+
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_eq!(settings.is_extended_connect_protocol_enabled(), Some(true));
+
+        client
+            .send_frame(frames::headers(1).pseudo(frame::Pseudo::request(
+                Method::CONNECT,
+                uri::Uri::from_static("http://example.com/"),
+                Some(Protocol::from_static("")),
+            )))
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        // Leading/trailing SP/HTAB on :protocol also rejected (RFC 9113 §8.2.1).
+        client
+            .send_frame(frames::headers(3).pseudo(frame::Pseudo::request(
+                Method::CONNECT,
+                uri::Uri::from_static("http://example.com/"),
+                Some(Protocol::from_static(" websocket")),
+            )))
+            .await;
+        client.recv_frame(frames::reset(3).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut builder = server::Builder::new();
+        builder.enable_connect_protocol();
+        let mut srv = builder.handshake::<_, Bytes>(io).await.expect("handshake");
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn reject_extended_connect_request_without_scheme() {
     h2_support::trace_init!();
