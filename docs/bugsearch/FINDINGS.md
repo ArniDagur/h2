@@ -284,6 +284,12 @@
 - **Fix branch:** `fix/reject-outbound-cl-with-end-stream`
 - **Change:** `has_nonzero_content_length` helper; reject on `send_request` and `send_response` when `end_of_stream && status != 304`.
 
+### F51 — Traditional CONNECT + Content-Length (tunnel framing)
+- **Severity:** Medium (protocol / interop): RFC 9110 §9.3.6 / RFC 9113 §8.5: traditional CONNECT (no `:protocol`) must not include Content-Length; clients MUST ignore CL on successful 2xx CONNECT responses. Pre-fix, a 200 + `Content-Length: 5` then tunnel DATA longer than 5 bytes caused stream PROTOCOL_ERROR (Remaining bound the tunnel). Outbound CONNECT with CL and inbound CONNECT with CL were also accepted.
+- **Evidence:** CONNECT + 200 CL:5 + 11-byte DATA pre-fix RST PROTOCOL_ERROR; post-fix body `hello world` delivered. Regressions: `connect_response_content_length_is_ignored`, `send_connect_rejects_content_length`, `reject_connect_with_content_length`. Extended CONNECT (`:protocol`) unchanged (body allowed).
+- **Fix branch:** `fix/connect-ignore-content-length`
+- **Change:** `Stream::is_connect` set on traditional CONNECT `send_request`; recv_headers skips CL for `is_connect && status.is_success()`; reject CL on traditional CONNECT outbound and server convert.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

@@ -131,5 +131,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F50):** generate rejects; 304 exempt (representation CL with empty body).
 - **Verdict:** F50 closes generate/receive asymmetry for general messages.
 
+### Traditional CONNECT and Content-Length
+- **RFC 9110 §9.3.6 / RFC 9113 §8.5:** no Content-Length on traditional CONNECT request; client MUST ignore CL on successful CONNECT response (tunnel data is not a framed representation body).
+- **Rust h2 (pre-F51):** 2xx CONNECT + CL bound `Remaining` → tunnel DATA over length = PROTOCOL_ERROR; request CL accepted both ways.
+- **Rust h2 (F51):** mark traditional CONNECT streams; skip CL on 2xx responses; reject CL on traditional CONNECT generate + server convert.
+- **Verdict:** F51 aligns CONNECT tunnel interop with RFC ignore/MUST NOT rules; extended CONNECT unchanged.
+
 ## Planned comparisons
 - Residual #848 API design.
