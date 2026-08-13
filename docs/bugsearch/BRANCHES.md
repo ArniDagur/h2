@@ -16,6 +16,7 @@
 | `fix/local-settings-window-increase-before-ack` | F10 |
 | `fix/abort-cancelled-pending-open-at-max-zero` | F11 |
 | `fix/send-reset-pending-open-at-max-zero` | F12 |
+| `fix/abort-reset-pending-open-when-max-zero` | F13 |
 
 ## experimental contains
-F1–F12, I1–I2, deadlock stress test, docs.
+F1–F13, I1–I2, deadlock stress test, docs.

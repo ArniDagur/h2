@@ -52,6 +52,12 @@
 - **Fix branch:** `fix/send-reset-pending-open-at-max-zero`
 - **Change:** On `send_reset`, if `pending_open && !can_inc_num_send_streams()`, clear queue and wake; expand abort to `is_scheduled_reset || (is_reset && pending_send.is_empty())`.
 
+### F13 — Reset `pending_open` after SETTINGS max→0 (queued open-then-RST)
+- **Severity:** Low–medium (resource leak): F12 residual. If HEADERS+RST were queued while a slot existed, then peer set max concurrent to 0 before open, abort only handled empty queues / scheduled reset — stream stuck with frames still queued.
+- **Evidence:** max=2 → `send_request`+`send_reset` without driving → SETTINGS max=0 → drive; with fix GOAWAY last_stream_id=0 (discarded, never opened).
+- **Fix branch:** `fix/abort-reset-pending-open-when-max-zero`
+- **Change:** `abort_closed_pending_open` also matches `is_reset && max_send_streams==0`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
