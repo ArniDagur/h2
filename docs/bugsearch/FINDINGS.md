@@ -428,6 +428,12 @@
 - **Fix branch:** `fix/cl-eos-before-recv-open`
 - **Change:** Parse/mismatch/non-zero CL on END_STREAM headers before `recv_open` (skip HEAD and successful CONNECT); post-recv_open path still sets Remaining for tracking.
 
+### F75 — Empty IPv6 literal authority `[]` accepted
+- **Severity:** Medium (protocol / security): RFC 3986 §3.2.2 IP-literal is `"[" (IPv6address / IPvFuture) "]"`. Empty content `[]` is not a valid host. F66 only rejected `host().is_empty()` (`":80"`); `http::uri::Authority` accepts `"[]"` / `"[]:80"` with `host() == "[]"`.
+- **Evidence:** Peer `:authority: []` or Host-only `Host: []:443` → post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_request` with `https://[]/` or `https://[]:443/` → `MalformedHeaders`. Valid `[::1]` still accepted. Regressions: `reject_request_empty_ipv6_literal_authority`, `request_with_empty_ipv6_literal_authority_is_user_error`.
+- **Fix branch:** `fix/reject-empty-ipv6-literal-authority`
+- **Change:** `frame::is_empty_or_empty_ip_literal_host` treats `""` and `"[]"` as empty; used on server recv, Host-only, client send, and push convert.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

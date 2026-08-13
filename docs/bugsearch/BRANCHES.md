@@ -78,6 +78,7 @@
 | `fix/reject-duplicate-host` | F72 |
 | `fix/reject-host-userinfo` | F73 |
 | `fix/cl-eos-before-recv-open` | F74 |
+| `fix/reject-empty-ipv6-literal-authority` | F75 |
 
 ## experimental contains
-F1–F74, I1–I2, deadlock stress test, docs.
+F1–F75, I1–I2, deadlock stress test, docs.

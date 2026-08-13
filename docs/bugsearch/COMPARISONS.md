@@ -130,6 +130,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (pre-F66):** accepted on recv; generatable via `https://:80/`.
 - **Rust h2 (F66):** reject empty host after authority parse (recv + generate + Host-only).
 
+### Empty IPv6 literal authority `[]`
+- **RFC 3986 §3.2.2:** IP-literal is `"[" (IPv6address / IPvFuture) "]"`; empty content is invalid.
+- **http::uri::Authority:** accepts `"[]"` / `"[]:80"` with `host() == "[]"`.
+- **Go:** historically permissive; golang/go#78172 tracks structural IP-literal Host validation.
+- **Rust h2 (pre-F75):** F66 missed non-empty host string `"[]"`.
+- **Rust h2 (F75):** reject empty IP-literal host (recv + generate + Host-only); valid `[::1]` unchanged. Full IPv6 grammar still not enforced (matches common reference char-set leniency).
+
 ### Header field values with leading/trailing SP/HTAB
 - **RFC 9113 §8.2.1:** field values MUST NOT have leading/trailing SP or HTAB; recipients MUST discard or reject.
 - **nghttp2:** `nghttp2_check_header_value_rfc9113` rejects leading/trailing SP/HTAB.

@@ -73,6 +73,7 @@
 - Multiple Host header fields → F72.
 - Userinfo in Host (Host-only path) → F73.
 - END_STREAM + non-zero CL RST after request EOS → F74.
+- Empty IPv6 literal authority `[]` → F75 (F66 residual; only empty content, not full IPv6 grammar).
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 - Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.
@@ -81,7 +82,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F74.
+1. Package PRs for F3–F75.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -98,7 +99,7 @@
 - 205 with Content-Length: 0 still allowed (HTTP/1.1 style empty section); optional strip for pure H2.
 - Extended CONNECT body Content-Length tracking (allowed; not special-cased).
 - `:path` starting with `//`: nghttp2 treats any path starting with `/` as regular (not full path-absolute check) — match reference, not fix-worthy.
-- Empty IPv6 literal authority `[]` (host `"[]"`): F66 residual; RFC 3986 IP-literal empty content is invalid; Go/nghttp2 char-set accept — lower priority.
+- Full IPv6 structural validation (`[gg]`, incomplete literals): Go/nghttp2 char-set still permissive; only empty `[]` fixed (F75).
 - Inbound 204 with CL:0 still accepted (nghttp2 strips; F68 rejects non-zero only). Outbound still rejects any CL on 204 (stricter generate).
 - `max_send_buffer_size(0)` makes `poll_capacity` Pending forever (API footgun); optional builder assert.
 - Local ENABLE_PUSH mid-connection: Recv flag only set at build; no public API to change push after handshake — OK for current surface.
