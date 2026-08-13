@@ -53,5 +53,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F35):** hard cap 5 per stream; further 1xx → ENHANCE_YOUR_CALM (always, including when user polls informational).
 - **Verdict:** F35 matches Go intent; slightly stricter when user drains 1xx (still capped at 5 total).
 
+### Response HEADERS missing `:status`
+- **Go:** `"malformed response from server: missing status pseudo header"`.
+- **Rust h2 (pre-F36):** `http::Response::builder` defaulted to 200 OK.
+- **Rust h2 (F36):** stream PROTOCOL_ERROR before `recv_open`.
+- **Verdict:** F36 aligns with Go/RFC 9113 §8.3.2.
+
 ## Planned comparisons
 - Residual #848 API design.

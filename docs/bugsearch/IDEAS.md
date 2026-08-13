@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F35 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F36 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -35,10 +35,11 @@
 - 1xx informational HEADERS with END_STREAM accepted → F33.
 - Content-Length on 1xx applied to final body → F34.
 - Uncapped 1xx flood → F35 (cap 5, ENHANCE_YOUR_CALM).
+- Response missing `:status` → F36.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F35.
+1. Package PRs for F3–F36.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

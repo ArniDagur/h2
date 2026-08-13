@@ -39,6 +39,7 @@
 | `fix/reject-informational-end-stream` | F33 |
 | `fix/ignore-content-length-on-1xx` | F34 |
 | `fix/cap-recv-informational` | F35 |
+| `fix/reject-response-missing-status` | F36 |
 
 ## experimental contains
-F1–F35, I1–I2, deadlock stress test, docs.
+F1–F36, I1–I2, deadlock stress test, docs.

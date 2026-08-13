@@ -190,6 +190,12 @@
 - **Fix branch:** `fix/cap-recv-informational`
 - **Change:** `Stream::recv_informational_count` + `DEFAULT_MAX_RECV_INFORMATIONAL` (5); reject further 1xx with ENHANCE_YOUR_CALM.
 
+### F36 — Response HEADERS missing `:status` accepted as 200
+- **Severity:** Medium (protocol): RFC 9113 §8.3.2 requires exactly one `:status` on responses. Client `convert_poll_message` only set status when present; `http::Response::builder` defaults to 200 OK. Go: `"malformed response from server: missing status pseudo header"`.
+- **Evidence:** Server sends HEADERS without pseudo + EOS after client request EOS — pre-fix delivered status 200; post-fix `RST_STREAM(PROTOCOL_ERROR)`. Check runs **before** `recv_open` so RST is not dropped on already-closed stream. Regression `response_headers_missing_status_is_stream_error`.
+- **Fix branch:** `fix/reject-response-missing-status`
+- **Change:** Client-side reject missing status before `recv_open`; keep defensive check in `convert_poll_message`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
