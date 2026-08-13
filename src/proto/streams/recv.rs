@@ -195,6 +195,19 @@ impl Recv {
         counts: &mut Counts,
     ) -> Result<(), RecvHeaderBlockError<Option<frame::Headers>>> {
         tracing::trace!("opening stream; init_window={}", self.init_window_sz);
+
+        // RFC 9113 §8.1 / RFC 9110: informational (1xx) responses do not end the
+        // message. END_STREAM on a 1xx HEADERS block is malformed. Go rejects
+        // with "1xx informational response with END_STREAM flag". Check before
+        // recv_open so we do not half-close the receive half by mistake.
+        if frame.is_informational() && frame.is_end_stream() {
+            proto_err!(
+                stream: "recv_headers: informational response with END_STREAM; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
+        }
+
         let is_initial = stream.state.recv_open(&frame)?;
 
         if is_initial {
