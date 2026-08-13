@@ -93,6 +93,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F64):** ASCII case-insensitive on recv and generate.
 - **Verdict:** F64 matches RFC/nghttp2.
 
+### Empty host in `:authority`
+- **RFC 9110 §4.3.1:** sender MUST NOT generate an empty host identifier.
+- **http::uri::Authority:** accepts `":"` / `":80"` with `host() == ""`.
+- **Rust h2 (pre-F66):** accepted on recv; generatable via `https://:80/`.
+- **Rust h2 (F66):** reject empty host after authority parse (recv + generate + Host-only).
+- **Verdict:** F66 closes empty-host hole left by userinfo-only checks (F44/F45).
+
 ### Asterisk-form `:path`
 - **RFC 9110 §7.1 / RFC 9113 §8.3.1:** `:path` of `*` is for OPTIONS only.
 - **nghttp2:** for http/https, requires path-regular (`/`…) or (OPTIONS and path-asterisk).

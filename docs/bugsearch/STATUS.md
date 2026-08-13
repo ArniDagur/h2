@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F65 @ `10069de`)
+**Branch tip:** `experimental/bugsearch` (F66 pending merge)
 
 ## Current focus
-F65: try_assign_capacity u32 wrap when available > window.
+F66: empty host in `:authority` (e.g. `:80`).
 
 ## Last actions
-1. Confirmed **F65**: plain `window - available` / `requested - available` wraps if available exceeds either bound.
-2. Fix: `additional_send_capacity` with saturating_sub (returns 0 when over-assigned).
-3. Unit tests: `additional_send_capacity_tests`.
+1. Confirmed **F66**: RFC 9110 forbids empty host; `http::Authority` accepts `":80"`/`":"` with empty host.
+2. Fix: reject empty host after parse on server recv, client send, push; Host-only path too.
+3. Regressions: `reject_request_empty_host_in_authority`, `request_with_empty_host_authority_is_user_error`.
 
 ## Next recommended step
-1. Package PRs for F3–F65.
+1. Package PRs for F3–F66.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 

@@ -1761,6 +1761,57 @@ async fn request_with_host_without_authority_pseudo() {
     join(client, srv).await;
 }
 
+/// RFC 9110 §4.3.1: empty host identifier is forbidden. http::Authority
+/// accepts `":80"` / `":"` with host "".
+#[tokio::test]
+async fn reject_request_empty_host_in_authority() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("https").into(),
+                        authority: util::byte_str(":80").into(),
+                        path: util::byte_str("/").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(3).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().authority().unwrap().as_str(), "example.com");
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// nghttp2 / RFC 9113: non-CONNECT requests need :authority or Host.
 /// Pre-fix accepted scheme+path only (not routable).
 #[tokio::test]

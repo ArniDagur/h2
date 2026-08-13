@@ -1619,9 +1619,15 @@ impl Peer {
         }
 
         // RFC 9113 §8.3.1: :authority MUST NOT include userinfo (user:pass@host).
+        // RFC 9110 §4.3.1: empty host identifier is not allowed.
         if let Some(ref authority) = pseudo.authority {
             if authority.as_str().as_bytes().contains(&b'@') {
                 return Err(UserError::MalformedHeaders);
+            }
+            if let Ok(auth) = authority.as_str().parse::<http::uri::Authority>() {
+                if auth.host().is_empty() {
+                    return Err(UserError::MalformedHeaders);
+                }
             }
         }
 
@@ -1739,13 +1745,22 @@ impl proto::Peer for Peer {
                 );
             }
             let maybe_authority = uri::Authority::from_maybe_shared(authority.clone().into_inner());
-            parts.authority = Some(maybe_authority.or_else(|why| {
+            let auth = maybe_authority.or_else(|why| {
                 malformed!(
                     "malformed headers: malformed authority ({:?}): {}",
                     authority,
                     why,
                 )
-            })?);
+            })?;
+            // RFC 9110 §4.3.1: empty host identifier is not allowed.
+            // http::uri::Authority accepts ":" and ":80" with host "".
+            if auth.host().is_empty() {
+                malformed!(
+                    "malformed headers: empty host in :authority ({:?})",
+                    authority,
+                );
+            }
+            parts.authority = Some(auth);
         } else if is_connect {
             // RFC 9113 §8.5: CONNECT without :authority is malformed.
             // Same requirement applies to extended CONNECT (RFC 8441).
@@ -1755,13 +1770,17 @@ impl proto::Peer for Peer {
             // nghttp2 requires :authority or Host; use Host for the request URI.
             let host_bytes = bytes::Bytes::copy_from_slice(host.as_bytes());
             let maybe_authority = uri::Authority::from_maybe_shared(host_bytes);
-            parts.authority = Some(maybe_authority.or_else(|why| {
+            let auth = maybe_authority.or_else(|why| {
                 malformed!(
                     "malformed headers: malformed Host ({:?}): {}",
                     host,
                     why,
                 )
-            })?);
+            })?;
+            if auth.host().is_empty() {
+                malformed!("malformed headers: empty host in Host ({:?})", host);
+            }
+            parts.authority = Some(auth);
         } else {
             // nghttp2: non-CONNECT requests must include :authority or Host.
             // Without either the request is not routable (no target authority).

@@ -374,6 +374,12 @@
 - **Fix branch:** `fix/try-assign-saturating-sub`
 - **Change:** `additional_send_capacity` helper with `saturating_sub` for both terms.
 
+### F66 — Empty host in `:authority` accepted
+- **Severity:** Medium (protocol / security): RFC 9110 §4.3.1 forbids empty host identifiers. `http::uri::Authority` accepts `":80"` and `":"` with `host == ""`. Pre-fix, such authorities were accepted on recv and generatable via URIs like `https://:80/`.
+- **Evidence:** Peer `:authority: :80` → post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_request` with `https://:80/` → `MalformedHeaders`. Regressions: `reject_request_empty_host_in_authority`, `request_with_empty_host_authority_is_user_error`.
+- **Fix branch:** `fix/reject-empty-authority-host`
+- **Change:** After authority parse, reject empty host on server recv, client send, and push convert; same for Host-only path.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

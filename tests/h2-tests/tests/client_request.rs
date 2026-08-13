@@ -727,6 +727,49 @@ async fn request_te_trailers_case_insensitive() {
     join(srv, client).await;
 }
 
+/// Empty host in authority (e.g. `https://:80/`) must not be generated.
+#[tokio::test]
+async fn request_with_empty_host_authority_is_user_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .version(Version::HTTP_2)
+            .uri("https://:80/")
+            .body(())
+            .unwrap();
+        client
+            .send_request(request, true)
+            .expect_err("empty host authority must be UserError");
+
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        drop(client);
+        conn.await.expect("conn");
+    };
+
+    join(srv, client).await;
+}
+
 /// Empty `:scheme` is not a valid scheme token (RFC 3986 §3.1). http::Uri can
 /// carry scheme="" (e.g. `://example.com/`); must not put empty :scheme on wire.
 #[tokio::test]
