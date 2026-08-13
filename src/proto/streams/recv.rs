@@ -321,7 +321,7 @@ impl Recv {
         if let Some(p) = pushed {
             Poll::Ready(Some(Ok(p)))
         } else {
-            let is_open = stream.state.ensure_recv_open()?;
+            let is_open = stream.state.ensure_recv_open(stream.id)?;
 
             if is_open {
                 stream.push_task = Some(cx.waker().clone());
@@ -350,7 +350,7 @@ impl Recv {
                 }
                 Some(_) => panic!("poll_response called after response returned"),
                 None => {
-                    if !stream.state.ensure_recv_open()? {
+                    if !stream.state.ensure_recv_open(stream.id)? {
                         proto_err!(stream: "poll_response: stream={:?} is not opened;",  stream.id);
                         return Poll::Ready(Err(Error::library_reset(
                             stream.id,
@@ -396,7 +396,7 @@ impl Recv {
         }
 
         // No informational response available at the front
-        if stream.state.ensure_recv_open()? {
+        if stream.state.ensure_recv_open(stream.id)? {
             // Request to get notified once more frames arrive
             stream.recv_task = Some(cx.waker().clone());
             Poll::Pending
@@ -1255,7 +1255,7 @@ impl Recv {
         cx: &Context,
         stream: &mut Stream,
     ) -> Poll<Option<Result<T, proto::Error>>> {
-        if stream.state.ensure_recv_open()? {
+        if stream.state.ensure_recv_open(stream.id)? {
             // Request to get notified once more frames arrive
             stream.recv_task = Some(cx.waker().clone());
             Poll::Pending

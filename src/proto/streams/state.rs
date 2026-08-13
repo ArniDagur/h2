@@ -444,12 +444,14 @@ impl State {
         matches!(self.inner, Idle)
     }
 
-    pub fn ensure_recv_open(&self) -> Result<bool, proto::Error> {
+    pub fn ensure_recv_open(&self, stream_id: StreamId) -> Result<bool, proto::Error> {
         // TODO: Is this correct?
         match self.inner {
             Closed(Cause::Error(ref e)) => Err(e.clone()),
+            // Stream-level scheduled reset (implicit cancel / oversize headers, etc.).
+            // This must not surface as a connection GOAWAY: only this stream is closed.
             Closed(Cause::ScheduledLibraryReset(reason)) => {
-                Err(proto::Error::library_go_away(reason))
+                Err(proto::Error::library_reset(stream_id, reason))
             }
             Closed(Cause::EndStream | Cause::ErrorAfterEndStream(_))
             | HalfClosedRemote(..)
@@ -513,10 +515,27 @@ mod tests {
         state.recv_reset(frame::Reset::new(stream_id, Reason::NO_ERROR), true);
 
         assert!(state.is_recv_end_stream());
-        assert_eq!(state.ensure_recv_open().unwrap(), false);
+        assert_eq!(state.ensure_recv_open(stream_id).unwrap(), false);
         assert_eq!(
             state.ensure_reason(PollReset::Streaming).unwrap(),
             Some(Reason::NO_ERROR)
         );
+    }
+
+    #[test]
+    fn scheduled_library_reset_is_stream_reset_not_goaway() {
+        let stream_id = StreamId::from(1);
+        let mut state = State::default();
+        state.send_open(true).unwrap();
+        state.set_scheduled_reset(Reason::CANCEL);
+
+        let err = state.ensure_recv_open(stream_id).unwrap_err();
+        match err {
+            proto::Error::Reset(id, reason, Initiator::Library) => {
+                assert_eq!(id, stream_id);
+                assert_eq!(reason, Reason::CANCEL);
+            }
+            other => panic!("expected library stream reset, got {:?}", other),
+        }
     }
 }
