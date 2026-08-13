@@ -80,6 +80,8 @@
 - DATA on pending_open treated as STREAM_CLOSED (F23 over-broad) → F79.
 - RecvStream drop after poll_data leaked unreleased in_flight (SendStream held) → F80.
 - SendStream drop without EOS did not RST while ResponseFuture lived → F81.
+- CodecFull poll_complete + send_data with task unset: codec write waker resumes; not a missed wake.
+- Graceful shutdown infinite wait for shutdown PING ACK: RFC 1-RTT; Go times out ~1s; h2 `abrupt_shutdown` is the escape — policy, not a library hang.
 - Pre-existing test failures (`recv_too_big_headers`, `srv_window_update_on_lower_stream_id`, `recv_invalid_push_promise_headers_is_stream_protocol_error`): stale after F74/F36/F32, not new library bugs.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).

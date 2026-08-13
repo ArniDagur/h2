@@ -260,5 +260,10 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F78):** after headers, `SendResponse` releases send ownership; `SendStream` drop reclaims unused reservation.
 - **Verdict:** h2-local assignment model; not a Go/nghttp2 mismatch.
 
+### Graceful GOAWAY + 1-RTT PING
+- **Go:** after initial GOAWAY, `goAwayTimeout` (~1s) then close if not idle.
+- **Rust h2:** wait indefinitely for shutdown-PING ACK before the second GOAWAY; `abrupt_shutdown` closes now.
+- **Verdict:** spec “at least one RTT” vs operational timeout. Policy, not a must-fix hang (S5).
+
 ## Planned comparisons
 - Residual #848 API design.

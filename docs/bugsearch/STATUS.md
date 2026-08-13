@@ -4,13 +4,13 @@
 **Branch tip:** `experimental/bugsearch` (F81)
 
 ## Current focus
-F81: last SendStream drop without EOS sends RST even if recv handles live.
+No new library bug this fire.
 
 ## Last actions
-1. Confirmed **F81**: docs promise RST on `SendStream` drop without closing send; cancel waited for `ref_count == 0`.
-2. Holding `ResponseFuture` after drop left send half open — peer waits, client hangs.
-3. Fix: last `send_ref` drop with send half open → `schedule_implicit_reset(CANCEL)`.
-4. Regression: `drop_send_stream_without_eos_resets_despite_response_future`. F77/F78 still pass.
+1. Checked CodecFull `poll_complete` + user `send_data` while `actions.task` is unset: parked on codec write waker; next poll drains the new frames.
+2. Graceful shutdown waits forever for shutdown-PING ACK (no timeout). Go uses ~1s `goAwayTimeout`. h2 has `abrupt_shutdown`; treat as policy, not a correctness hang.
+3. GOAWAY + `pending_open`: `handle_error` → `is_reset` + empty queue → `abort_closed_pending_open`.
+4. F81 + `send_request(..., true)` still pending_open: send half closed, no RST; HEADERS+EOS wait for a slot. Correct.
 
 ## Next recommended step
 1. Package PRs for F3–F81.

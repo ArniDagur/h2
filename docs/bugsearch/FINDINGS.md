@@ -476,6 +476,11 @@
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
 
 ## Dismissed
+### S5 — Graceful shutdown waits forever for shutdown-PING ACK
+- Server `graceful_shutdown` sends GOAWAY(MAX) + PING and will not send the final GOAWAY until the PONG. A dead/malicious peer never PONGs → `poll_closed`/`accept` stay pending.
+- RFC 9113 says wait at least one RTT; Go `http2` uses a ~1s `goAwayTimeout`. h2 exposes `abrupt_shutdown` for a hard close.
+- Verdict: policy/API (add timeout later if someone wants it), not a silent correctness bug.
+
 ### S4 — Three failing integration tests after F32/F36/F74
 - `recv_too_big_headers`: RST now emitted on fully closed stream 1 (oversize) as well as stream 3; mock expected only RST(3).
 - `srv_window_update_on_lower_stream_id` (#208): fixture `headers(7).eos()` omits `:status`; F36 RST(7) PROTOCOL_ERROR before the WU-on-5 scenario.
