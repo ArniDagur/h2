@@ -991,9 +991,12 @@ impl Prioritize {
     /// - Implicit cancel (`ScheduledLibraryReset`): user dropped all handles.
     /// - Explicit `send_reset` with empty `pending_send`: discarded because no
     ///   concurrency slot was available (HEADERS+RST would never flush).
+    /// - Explicit reset still holding HEADERS+RST when `max_send_streams == 0`:
+    ///   a slot can never open, so discard (SETTINGS may have lowered max after
+    ///   the reset was queued).
     ///
-    /// Explicit reset that still has HEADERS+RST queued is left alone so a
-    /// later slot can open-then-reset (avoids RST on idle).
+    /// Explicit reset that still has HEADERS+RST queued is left alone when a
+    /// slot may still open later (avoids RST on idle).
     ///
     /// Returns true if a stream was aborted (caller may loop).
     fn abort_closed_pending_open<B>(
@@ -1002,9 +1005,11 @@ impl Prioritize {
         store: &mut Store,
         counts: &mut Counts,
     ) -> bool {
+        let max_zero = counts.max_send_streams() == 0;
         let Some(mut stream) = self.pending_open.pop_if(store, |s| {
             s.state.is_scheduled_reset()
                 || (s.state.is_reset() && s.pending_send.is_empty())
+                || (s.state.is_reset() && max_zero)
         }) else {
             return false;
         };

@@ -2478,3 +2478,93 @@ async fn send_reset_pending_open_with_max_concurrent_streams_zero() {
 
     join(srv, client).await;
 }
+
+/// If `send_reset` queues open-then-RST while a slot exists, then the peer
+/// lowers `MAX_CONCURRENT_STREAMS` to 0 before the stream leaves `pending_open`,
+/// the stream must still be freed (discard locally — peer never saw it).
+#[tokio::test]
+async fn send_reset_pending_open_then_max_concurrent_streams_zero() {
+    use std::task::Poll;
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let (reset_done_tx, reset_done_rx) = oneshot::channel();
+    let (max0_tx, max0_rx) = oneshot::channel();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(2))
+            .await;
+        assert_default_settings!(settings);
+
+        // Client queued HEADERS+RST under max=2 without driving the conn.
+        reset_done_rx.await.unwrap();
+
+        srv.send_frame(frames::settings().max_concurrent_streams(0))
+            .await;
+        max0_tx.send(()).unwrap();
+
+        // Must not hang: SETTINGS_ACK, GOAWAY, and/or open-then-RST are all ok.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match srv.next().await {
+                    None => return,
+                    Some(Ok(frame::Frame::Settings(s))) if s.is_ack() => continue,
+                    Some(Ok(frame::Frame::GoAway(_))) => {
+                        srv.recv_eof().await;
+                        return;
+                    }
+                    Some(Ok(frame::Frame::Headers(_))) | Some(Ok(frame::Frame::Reset(_))) => {
+                        continue;
+                    }
+                    other => panic!("unexpected frame: {:?}", other),
+                }
+            }
+        })
+        .await
+        .expect("connection did not settle after max→0");
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+
+        // Drive until max=2 without opening streams.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 2 {
+                let _ = futures::future::poll_fn(|cx| match Pin::new(&mut conn).poll(cx) {
+                    Poll::Ready(r) => Poll::Ready(r),
+                    Poll::Pending => Poll::Ready(Ok(())),
+                })
+                .await;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max=2");
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        // Do not poll conn: stream stays pending_open; can_inc true → keep HEADERS+RST.
+        let (resp, mut send_stream) = client.send_request(request, false).unwrap();
+        send_stream.send_reset(Reason::CANCEL);
+        reset_done_tx.send(()).unwrap();
+        max0_rx.await.unwrap();
+
+        // Now drive: apply max=0 then free the never-opened reset stream.
+        drop(resp);
+        drop(send_stream);
+        drop(client);
+
+        tokio::time::timeout(Duration::from_secs(2), &mut conn)
+            .await
+            .expect("client hung after max→0 with reset pending_open")
+            .expect("client connection error");
+    };
+
+    join(srv, client).await;
+}
