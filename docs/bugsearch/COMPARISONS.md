@@ -273,6 +273,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F83):** enable applied when SETTINGS is written. ACK still sets the flag (idempotent).
 - **Verdict:** F83 is an h2-local race fix, same class as F10/F82.
 
+### Uppercase / invalid header field names
+- **RFC 9113 §8.2.1:** uppercase letters in field names (and other invalid name/value bytes) are **malformed** (stream PROTOCOL_ERROR).
+- **nghttp2:** invalid / non-lowercase field names → stream error, HPACK continues.
+- **Rust h2 (pre-F86):** `HeaderName::from_lowercase` / `HeaderValue::from_bytes` failure was HPACK `DecoderError` → GOAWAY PROTOCOL_ERROR.
+- **Rust h2 (F86):** `Header::Malformed`; stream RST after the block (same path as Connection/TE/WS).
+- **Verdict:** F86 aligns with RFC/nghttp2 (connection-kill → stream error).
+
 ### Malformed PUSH_PROMISE header block
 - **RFC 9113 §8.4:** a PUSH_PROMISE that is not a complete valid request is a stream PROTOCOL_ERROR on the **promised** stream.
 - **Go:** `processPushPromise` validation uses `streamError(promisedID, PROTOCOL_ERROR)`.

@@ -499,6 +499,12 @@
 - **Fix branch:** `fix/malformed-push-promise-resets-promised`
 - **Change:** `Headers`/`PushPromise::malformed_reset_id`; codec RST uses promised id for PP (promised 0 → GOAWAY).
 
+### F86 — Uppercase / invalid header names GOAWAY the connection
+- **Severity:** Medium (connection-kill): RFC 9113 §8.2.1 requires uppercase field names (and other invalid name/value bytes) to be treated as **malformed** (stream PROTOCOL_ERROR). `Header::new` used `HeaderName::from_lowercase` / `HeaderValue::from_bytes` and mapped failure to HPACK `DecoderError` → codec GOAWAY PROTOCOL_ERROR. nghttp2 RSTs the stream and keeps decoding.
+- **Evidence:** Raw HEADERS with literal `X-Foo: bar` after a valid GET: pre-fix connection GOAWAY; post-fix `RST_STREAM(1)`, follow-up stream 3 succeeds. Unit: `uppercase_header_name_is_malformed_not_hpack_error`. Regression: `recv_uppercase_header_name_is_stream_error`.
+- **Fix branch:** `fix/uppercase-header-name-stream-error`
+- **Change:** `Header::Malformed` for semantic HTTP errors (uppercase name, CTL value, unknown/invalid pseudo). HPACK continues (not inserted). `HeaderBlock::load` sets `is_malformed` → existing stream RST path (F84/F85).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

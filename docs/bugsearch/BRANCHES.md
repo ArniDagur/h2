@@ -89,6 +89,7 @@
 | `fix/local-extended-connect-enable-before-ack` | F83 |
 | `fix/malformed-headers-continuation-hpack` | F84 |
 | `fix/malformed-push-promise-resets-promised` | F85 |
+| `fix/uppercase-header-name-stream-error` | F86 |
 
 ## experimental contains
-F1–F85, I1–I2, deadlock stress test, docs.
+F1–F86, I1–I2, deadlock stress test, docs.
