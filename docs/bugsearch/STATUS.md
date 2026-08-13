@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F41: GOAWAY frame with non-zero stream id accepted.
+F42: inbound request `Host` differing from `:authority` accepted.
 
 ## Last actions
-1. Confirmed **F41**: `GoAway::load` never inspected frame header stream id (unlike SETTINGS/PING).
-2. Fix: `GoAway::load(head, payload)` rejects non-zero stream id as `InvalidStreamId` → connection PROTOCOL_ERROR.
-3. Regression: `read_goaway_nonzero_stream_id_is_connection_error`.
+1. Confirmed **F42**: GET with `:authority: example.com` + `Host: evil.example` delivered to `poll_accept`.
+2. Fix: `server::Peer::convert_poll_message` rejects Host ≠ `:authority` (PROTOCOL_ERROR); matching Host still OK.
+3. Regressions: `reject_host_header_differing_from_authority`, `matching_host_with_authority_is_accepted`.
 
 ## Next recommended step
-1. Package PRs for F3–F41.
+1. Package PRs for F3–F42.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 

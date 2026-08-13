@@ -45,6 +45,7 @@
 | `fix/reject-mismatched-content-length` | F39 |
 | `fix/reject-content-length-in-trailers` | F40 |
 | `fix/goaway-requires-stream-zero` | F41 |
+| `fix/reject-host-authority-mismatch` | F42 |
 
 ## experimental contains
-F1–F41, I1–I2, deadlock stress test, docs.
+F1–F42, I1–I2, deadlock stress test, docs.

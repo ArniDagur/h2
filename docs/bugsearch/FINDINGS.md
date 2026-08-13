@@ -230,6 +230,12 @@
 - **Fix branch:** `fix/goaway-requires-stream-zero`
 - **Change:** `GoAway::load(head, payload)` returns `InvalidStreamId` when `!head.stream_id().is_zero()`; `framed_read` passes `head`.
 
+### F42 — Request `Host` differing from `:authority` accepted
+- **Severity:** Medium (protocol / authority confusion): RFC 9113 §8.3.1 says a server SHOULD treat a request as malformed when `Host` identifies a different entity than `:authority`. Pre-fix `convert_poll_message` left both fields intact; applications could see `req.uri().authority()` = example.com while `Host: evil.example`. Go is aligning on reject (golang/go#80065).
+- **Evidence:** Headers with `:authority: example.com` + `Host: evil.example` — pre-fix request delivered; post-fix `RST_STREAM(PROTOCOL_ERROR)`. Matching `Host: example.com` still accepted. Regressions: `reject_host_header_differing_from_authority`, `matching_host_with_authority_is_accepted`.
+- **Fix branch:** `fix/reject-host-authority-mismatch`
+- **Change:** In `server::Peer::convert_poll_message`, if both Host and `:authority` present and byte-values differ → malformed. Applies to PUSH_PROMISE request conversion too.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

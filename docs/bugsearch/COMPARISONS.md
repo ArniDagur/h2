@@ -89,5 +89,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F41):** non-zero stream id → `InvalidStreamId` → connection PROTOCOL_ERROR.
 - **Verdict:** F41 aligns with RFC / other connection-oriented frame loaders in h2.
 
+### Host vs `:authority` on inbound requests
+- **RFC 9113 §8.3.1:** server SHOULD treat mismatched Host / `:authority` as malformed; proxies MUST discard Host.
+- **Go:** moving to reject conflicting Host (golang/go#80065).
+- **Rust h2 (pre-F42):** both fields delivered; URI authority from `:authority` only.
+- **Rust h2 (F42):** byte mismatch → stream PROTOCOL_ERROR; equal Host kept.
+- **Verdict:** F42 is a recommended-server-behavior + security hardening fix (not a hard MUST, but interop/security high-signal).
+
 ## Planned comparisons
 - Residual #848 API design.

@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F41 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F42 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -41,13 +41,15 @@
 - Mismatched multi Content-Length → F39.
 - Content-Length in trailers (recv + send) → F40.
 - GOAWAY non-zero stream id → F41.
+- Host ≠ `:authority` on inbound request → F42.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 - Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.
 - Invalid `:path` form (no leading `/`, absolute-form): already rejected via `http::uri::PathAndQuery` / builder.
 - #699 Cookie concatenation (RFC 9113 §8.1.2.5): ecosystem uses get_all; design/interop not a silent correctness bug.
+- Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F41.
+1. Package PRs for F3–F42.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
