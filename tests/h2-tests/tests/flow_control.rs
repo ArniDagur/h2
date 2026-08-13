@@ -545,58 +545,55 @@ async fn stream_error_release_connection_capacity() {
 }
 
 #[tokio::test]
-async fn recv_stream_drop_releases_only_buffered_connection_capacity() {
+async fn recv_stream_drop_releases_buffered_connection_and_stream_capacity() {
     h2_support::trace_init!();
 
     const FRAME_LEN: usize = 16_384;
     const TOTAL_LEN: usize = FRAME_LEN * 2;
 
-    // Exercise all relationships between buffered and in-flight capacity:
-    // equal, buffered > in-flight, and buffered < in-flight.
-    for read_frames in 0usize..=1 {
-        for released_frames in 0usize..=1 {
-            let expected_used = read_frames.saturating_sub(released_frames) * FRAME_LEN;
-            let (io, mut peer) = mock::new();
+    // Drop of both unread frames must WINDOW_UPDATE connection *and* stream.
+    let (io, mut peer) = mock::new();
 
-            let peer = async move {
-                let _ = peer.assert_server_handshake().await;
-                peer.send_frame(frames::headers(1).request("POST", "https://example.com/"))
-                    .await;
-                for _ in 0..2 {
-                    peer.send_frame(frames::data(1, vec![0; FRAME_LEN])).await;
-                }
-
-                peer.recv_frame(frames::window_update(0, (TOTAL_LEN - expected_used) as u32))
-                    .await;
-                if released_frames > 0 {
-                    peer.recv_frame(frames::window_update(1, FRAME_LEN as u32))
-                        .await;
-                }
-            };
-
-            let server = async move {
-                let mut server = server::handshake(io).await.unwrap();
-                let (request, _respond) = server.next().await.unwrap().unwrap();
-                let mut body = request.into_body();
-
-                for _ in 0..read_frames {
-                    assert_eq!(body.data().await.unwrap().unwrap().len(), FRAME_LEN);
-                }
-
-                let mut flow = body.flow_control().clone();
-                for _ in 0..released_frames {
-                    flow.release_capacity(FRAME_LEN).unwrap();
-                }
-                drop(body);
-
-                assert_eq!(flow.used_capacity(), expected_used);
-
-                let _ = server.next().await;
-            };
-
-            join(peer, server).await;
+    let peer = async move {
+        let _ = peer.assert_server_handshake().await;
+        peer.send_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        for _ in 0..2 {
+            peer.send_frame(frames::data(1, vec![0; FRAME_LEN])).await;
         }
-    }
+
+        let mut got_conn = false;
+        let mut got_stream = false;
+        for _ in 0..4 {
+            if got_conn && got_stream {
+                break;
+            }
+            let frame = peer.next().await.expect("eof").expect("frame");
+            match frame {
+                frame::Frame::WindowUpdate(wu) if wu.stream_id() == StreamId::from(0) => {
+                    assert_eq!(wu.size_increment() as usize, TOTAL_LEN);
+                    got_conn = true;
+                }
+                frame::Frame::WindowUpdate(wu) if wu.stream_id() == StreamId::from(1) => {
+                    assert_eq!(wu.size_increment() as usize, TOTAL_LEN);
+                    got_stream = true;
+                }
+                other => panic!("unexpected frame: {:?}", other),
+            }
+        }
+        assert!(got_conn && got_stream, "drop must WU connection and stream");
+    };
+
+    let server = async move {
+        let mut server = server::handshake(io).await.unwrap();
+        let (request, _respond) = server.next().await.unwrap().unwrap();
+        let body = request.into_body();
+        // Drop without reading either frame.
+        drop(body);
+        let _ = server.next().await;
+    };
+
+    join(peer, server).await;
 }
 
 // Regression test for TODO
@@ -3449,4 +3446,90 @@ async fn connection_window_update_resumes_starved_buffered_stream() {
         result.is_ok(),
         "timed out: starved buffered stream did not resume after connection WINDOW_UPDATE"
     );
+}
+
+/// Dropping `RecvStream` with unread buffered DATA must release *stream*
+/// capacity (not only connection), producing a stream WINDOW_UPDATE so the
+/// peer can continue on that stream while we still hold `SendStream`.
+#[tokio::test]
+async fn drop_recv_stream_releases_stream_window_update() {
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let (wu_tx, wu_rx) = oneshot::channel();
+
+    // Half of default 65535 is 32767; release must exceed threshold for a WU.
+    const CHUNK: usize = 16_384;
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(frames::data(1, vec![b'a'; CHUNK])).await;
+        srv.send_frame(frames::data(1, vec![b'b'; CHUNK])).await;
+        srv.send_frame(frames::data(1, vec![b'c'; CHUNK])).await;
+
+        let mut got_stream_wu = false;
+        let mut got_conn_wu = false;
+        for _ in 0..6 {
+            if got_stream_wu && got_conn_wu {
+                break;
+            }
+            let frame = tokio::time::timeout(Duration::from_secs(2), srv.next())
+                .await
+                .expect("timeout waiting for WINDOW_UPDATE after RecvStream drop")
+                .expect("eof")
+                .expect("frame");
+            match frame {
+                frame::Frame::WindowUpdate(wu) if wu.stream_id() == StreamId::from(0) => {
+                    got_conn_wu = true;
+                }
+                frame::Frame::WindowUpdate(wu) if wu.stream_id() == StreamId::from(1) => {
+                    got_stream_wu = true;
+                    assert!(
+                        wu.size_increment() as usize >= CHUNK * 2,
+                        "stream WU too small: {}",
+                        wu.size_increment()
+                    );
+                }
+                other => panic!("unexpected frame while waiting for WU: {:?}", other),
+            }
+        }
+        assert!(got_stream_wu, "missing stream WINDOW_UPDATE after RecvStream drop");
+        assert!(got_conn_wu, "missing connection WINDOW_UPDATE after RecvStream drop");
+        let _ = wu_tx.send(());
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        let conn = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        let (resp, send_stream) = client.send_request(request, false).unwrap();
+        let resp = resp.await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = resp.into_body();
+        // Let connection task buffer DATA, then drop without reading.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        drop(body);
+
+        wu_rx.await.expect("server did not see stream WINDOW_UPDATE");
+        drop(send_stream);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
 }

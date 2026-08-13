@@ -820,13 +820,23 @@ impl Recv {
             }
         }
 
-        // Received a frame, but no one cared about it. fix issue#648
+        // Received a frame, but no one cared about it (RecvStream dropped).
+        // Still apply stream-level flow control: peer already spent stream
+        // window. Without consume+release, we would accept more DATA than the
+        // stream window allows and never send stream WINDOW_UPDATE (peer stalls).
+        // Connection capacity was consumed above; release both levels.
         if !stream.is_recv {
             tracing::trace!(
                 "recv_data; frame ignored on stream release {:?} for some time",
                 stream.id,
             );
-            self.release_connection_capacity(sz, &mut None);
+            stream
+                .recv_flow
+                .send_data(sz)
+                .map_err(proto::Error::library_go_away)?;
+            // Immediately re-credit: no user will call release_capacity.
+            stream.in_flight_recv_data += sz;
+            let _ = self.release_capacity(sz, stream, &mut None);
             return Ok(());
         }
 
@@ -1044,7 +1054,11 @@ impl Recv {
         stream.notify_push();
     }
 
-    pub(super) fn clear_recv_buffer(&mut self, stream: &mut Stream, task: &mut Option<Waker>) {
+    pub(super) fn clear_recv_buffer(
+        &mut self,
+        stream: &mut store::Ptr,
+        task: &mut Option<Waker>,
+    ) {
         let mut to_release: WindowSize = 0;
         while let Some(event) = stream.pending_recv.pop_front(&mut self.buffer) {
             if let Event::Data(data) = &event {
@@ -1057,9 +1071,13 @@ impl Recv {
         // * User read data but hasn't released: buf=0, in_flight>0 -> release 0
         // * User released without reading: buf>0, in_flight=0 -> release 0
         // * Normal drop without reading: buf=in_flight -> full release
+        //
+        // Release both connection and stream windows so stream WINDOW_UPDATE
+        // can restore the peer's stream send window while the stream may still
+        // be half-open for sending.
         if to_release > 0 {
-            stream.in_flight_recv_data -= to_release;
-            self.release_connection_capacity(to_release, task);
+            // release_capacity checks in_flight and adjusts both levels.
+            let _ = self.release_capacity(to_release, stream, task);
         }
     }
 
@@ -1451,6 +1469,56 @@ mod tests {
             "connection in_flight must be released after stream window error"
         );
         assert_eq!(stream.in_flight_recv_data, 0);
+    }
+
+    #[test]
+    fn ignored_data_when_not_recv_consumes_stream_window() {
+        // RecvStream dropped (is_recv=false): DATA must still consume and
+        // re-credit the stream window, or over-window DATA would be accepted
+        // and the peer would never get a stream WINDOW_UPDATE.
+        let config = Config {
+            initial_max_send_streams: 0,
+            local_max_buffer_size: 0,
+            local_next_stream_id: 2.into(),
+            local_push_enabled: false,
+            extended_connect_protocol_enabled: false,
+            local_reset_duration: Duration::ZERO,
+            local_reset_max: 0,
+            remote_reset_max: 0,
+            remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            local_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            remote_max_initiated: None,
+            local_max_error_reset_streams: None,
+        };
+        let mut recv = Recv::new(peer::Dyn::Server, &config);
+        let mut store = Store::new();
+        let mut stream = store.insert(
+            StreamId::from(1),
+            Stream::new(StreamId::from(1), 0, DEFAULT_INITIAL_WINDOW_SIZE),
+        );
+        let headers = frame::Headers::new(
+            StreamId::from(1),
+            frame::Pseudo::request(
+                http::Method::POST,
+                http::Uri::from_static("https://example.com/"),
+                None,
+            ),
+            HeaderMap::new(),
+        );
+        stream.state.recv_open(&headers).unwrap();
+        stream.is_recv = false;
+
+        let win_before = stream.recv_flow.window_size();
+        let data = frame::Data::new(StreamId::from(1), Bytes::from_static(b"hello"));
+        recv.recv_data(data, &mut stream).unwrap();
+
+        assert_eq!(stream.in_flight_recv_data, 0);
+        assert_eq!(recv.in_flight_data(), 0);
+        // Peer spent 5 bytes of stream window; we must track that (pre-fix left
+        // window_size unchanged and could accept past the real stream window).
+        assert_eq!(stream.recv_flow.window_size(), win_before - 5);
+        // available re-credited so WINDOW_UPDATE can fire once threshold is met.
+        assert_eq!(stream.recv_flow.available().as_size(), win_before);
     }
 
     #[test]
