@@ -91,10 +91,14 @@ impl Send {
         {
             tracing::debug!("illegal connection-specific headers found");
             return Err(UserError::MalformedHeaders);
-        } else if let Some(te) = fields.get(http::header::TE) {
-            if te != "trailers" {
-                tracing::debug!("illegal connection-specific headers found");
-                return Err(UserError::MalformedHeaders);
+        } else {
+            // RFC 9110: transfer-coding is case-insensitive; only "trailers" is
+            // allowed on HTTP/2 (RFC 9113 §8.2.2). nghttp2 matches case-insensitively.
+            for te in fields.get_all(http::header::TE) {
+                if !te.as_bytes().eq_ignore_ascii_case(b"trailers") {
+                    tracing::debug!("illegal connection-specific headers found");
+                    return Err(UserError::MalformedHeaders);
+                }
             }
         }
         Ok(())

@@ -993,7 +993,11 @@ impl HeaderBlock {
                     {
                         tracing::trace!("load_hpack; connection level header");
                         malformed = true;
-                    } else if name == header::TE && value != "trailers" {
+                    } else if name == header::TE
+                        && !value.as_bytes().eq_ignore_ascii_case(b"trailers")
+                    {
+                        // RFC 9110: transfer-coding tokens are case-insensitive.
+                        // nghttp2 uses case-insensitive compare; only "trailers" is allowed.
                         tracing::trace!(
                             "load_hpack; TE header not set to trailers; val={:?}",
                             value

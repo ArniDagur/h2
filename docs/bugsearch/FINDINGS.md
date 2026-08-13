@@ -362,6 +362,12 @@
 - **Fix branch:** `fix/reject-empty-content-length`
 - **Change:** `parse_u64` rejects empty input (covers recv, generate, trailers/push CL checks).
 
+### F64 — `TE: trailers` comparison was case-sensitive
+- **Severity:** Medium (protocol / interop): RFC 9110 transfer-coding tokens are case-insensitive. nghttp2 accepts TE with `lstrieq("trailers", ...)`. Pre-fix h2 required exact `te == "trailers"`, so `TE: Trailers` was treated as a forbidden connection-specific header on recv and generate.
+- **Evidence:** `send_request` / `send_trailers` with `TE: Trailers` succeed post-fix. `TE: chunked` still rejected. Regressions: `request_te_trailers_case_insensitive`, updated `send_trailers_rejects_connection_specific_headers`.
+- **Fix branch:** `fix/te-trailers-case-insensitive`
+- **Change:** `eq_ignore_ascii_case(b"trailers")` in load_hpack, `Send::check_headers`, and push convert.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

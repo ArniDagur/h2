@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F63 @ `9d8bce3`)
+**Branch tip:** `experimental/bugsearch` (F64 pending merge)
 
 ## Current focus
-F63: empty Content-Length field accepted as 0.
+F64: TE: trailers case-insensitive comparison.
 
 ## Last actions
-1. Confirmed **F63**: RFC 9110 requires `1*DIGIT` for Content-Length; `parse_u64("")` returned Ok(0).
-2. Fix: reject empty in `parse_u64` (all CL call sites).
-3. Regressions: `empty_content_length_is_stream_error`, `send_request_rejects_empty_content_length`.
+1. Confirmed **F64**: RFC 9110 / nghttp2 treat TE transfer-coding as case-insensitive; h2 required exact `"trailers"`.
+2. Fix: ASCII case-insensitive compare on recv (load_hpack) and generate (check_headers, push).
+3. Regressions: `request_te_trailers_case_insensitive`, trailers test update.
 
 ## Next recommended step
-1. Package PRs for F3–F63.
+1. Package PRs for F3–F64.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (try_assign saturating_sub when available > window).
+3. Further FC/wakeup / protocol hunt (try_assign saturating_sub).
 
 ## Blockers
 None.

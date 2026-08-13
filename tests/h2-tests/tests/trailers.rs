@@ -214,7 +214,8 @@ async fn send_trailers_rejects_connection_specific_headers() {
         // hits the wire for those), and finally sends a *valid* trailer to close cleanly.
         srv.recv_frame(frames::headers(1).request("POST", "https://example.com/"))
             .await;
-        srv.recv_frame(frames::headers(1).field("x-trailer", "ok").eos())
+        // Final trailer after local rejections; may include TE: Trailers (case).
+        srv.recv_frame(frames::headers(1).field("te", "Trailers").eos())
             .await;
         srv.send_frame(frames::headers(1).response(200).eos()).await;
     };
@@ -241,7 +242,7 @@ async fn send_trailers_rejects_connection_specific_headers() {
             let err = stream.send_trailers(trailers).expect_err(name);
             assert_eq!(err.to_string(), "user error: malformed headers");
         }
-        // TE is connection-specific unless it is exactly `TE: trailers`.
+        // TE is connection-specific unless it is `TE: trailers` (case-insensitive).
         let mut te_bad = HeaderMap::new();
         te_bad.insert("te", "chunked".parse().unwrap());
         let err = stream.send_trailers(te_bad).expect_err("te: chunked");
@@ -254,13 +255,13 @@ async fn send_trailers_rejects_connection_specific_headers() {
         let err = stream.send_trailers(cl).expect_err("content-length");
         assert_eq!(err.to_string(), "user error: malformed headers");
 
-        // The rejections above must not have corrupted stream state: a clean trailer
-        // still sends and the exchange completes normally.
-        let mut good = HeaderMap::new();
-        good.insert("x-trailer", "ok".parse().unwrap());
+        // Pre-fix TE: Trailers (mixed case) was rejected; RFC 9110 / nghttp2
+        // treat transfer-coding as case-insensitive.
+        let mut te_mixed = HeaderMap::new();
+        te_mixed.insert("te", "Trailers".parse().unwrap());
         stream
-            .send_trailers(good)
-            .expect("valid trailer should send");
+            .send_trailers(te_mixed)
+            .expect("TE: Trailers should be accepted");
 
         let response = conn.drive(response).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);

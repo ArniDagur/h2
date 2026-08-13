@@ -1652,8 +1652,8 @@ impl Peer {
         {
             return Err(UserError::MalformedHeaders);
         }
-        if let Some(te) = headers.get(http::header::TE) {
-            if te != "trailers" {
+        for te in headers.get_all(http::header::TE) {
+            if !te.as_bytes().eq_ignore_ascii_case(b"trailers") {
                 return Err(UserError::MalformedHeaders);
             }
         }

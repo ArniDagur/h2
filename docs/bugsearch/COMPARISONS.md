@@ -86,6 +86,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F62):** require `:authority` or Host; Host alone populates request URI authority (origin-form).
 - **Verdict:** F62 matches nghttp2; Host-only path preserves HTTP/1.1 origin-form translation.
 
+### TE: trailers case sensitivity
+- **RFC 9110:** transfer-coding tokens are case-insensitive.
+- **nghttp2:** `lstrieq("trailers", ...)` for TE.
+- **Rust h2 (pre-F64):** exact byte match to `"trailers"` only.
+- **Rust h2 (F64):** ASCII case-insensitive on recv and generate.
+- **Verdict:** F64 matches RFC/nghttp2.
+
 ### Asterisk-form `:path`
 - **RFC 9110 §7.1 / RFC 9113 §8.3.1:** `:path` of `*` is for OPTIONS only.
 - **nghttp2:** for http/https, requires path-regular (`/`…) or (OPTIONS and path-asterisk).
