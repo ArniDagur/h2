@@ -260,6 +260,12 @@
 - **Fix branch:** `fix/reject-send-response-informational`
 - **Change:** `StreamRef::send_response` rejects `status.is_informational()` before convert/send.
 
+### F47 — `send_response` accepted 204/205/304 without END_STREAM
+- **Severity:** Medium (protocol / API): RFC 9110 requires 204 No Content, 205 Reset Content, and 304 Not Modified to be terminated by the header section (no body/trailers). F43 rejects these on receive without END_STREAM; the generate path still allowed `send_response(status, false)`, emitting HEADERS without END_STREAM and leaving the send half open for DATA.
+- **Evidence:** Server `send_response(204, false)` pre-fix would queue non-EOS HEADERS; post-fix `UserError::UnexpectedFrameType`, then `send_response(204, true)` succeeds. Regression `send_response_rejects_no_content_without_end_stream`.
+- **Fix branch:** `fix/reject-send-no-content-without-end-stream`
+- **Change:** `StreamRef::send_response` rejects `status ∈ {204,205,304} && !end_of_stream`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

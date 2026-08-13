@@ -100,7 +100,9 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **RFC 9110:** these statuses are terminated by the header section; no content or trailers.
 - **Rust h2 (pre-F43):** 204 without EOS left stream recv-streaming → DATA accepted as body.
 - **Rust h2 (F43):** client rejects 204/205/304 HEADERS without END_STREAM as stream PROTOCOL_ERROR.
-- **Verdict:** F43 aligns with HTTP message framing rules (HTTP semantics, not only HTTP/2 frame layer).
+- **Rust h2 (pre-F47):** server `send_response(204, false)` still emitted non-EOS HEADERS (generate gap).
+- **Rust h2 (F47):** `send_response` rejects 204/205/304 when `!end_of_stream`.
+- **Verdict:** F43+F47 complete receive+generate for no-content statuses.
 
 ### `:authority` userinfo
 - **RFC 9113 §8.3.1:** authority MUST NOT include deprecated userinfo for http/https (generate or accept).
