@@ -115,6 +115,7 @@
 - `SendRequest::clone` sets `pending: None`. Two clones cannot park on the same `open_task`.
 - `Prioritize` comment says send queues are ID-ordered; `Queue::push` is FIFO. Safe in practice: `send_request` assigns increasing ids under the mutex then `queue_open`; `buffer_pending` opens at most one pending_open per frame and `push_front`s it so that stream's HEADERS are popped next. A later stream cannot emit HEADERS while an earlier id is still idle.
 - Fully encoded small DATA sets `last_data_frame` in `Encoder::buffer`; `reclaim_frame` right after clears `in_flight_data_frame`. Large DATA stays in `encoder.next` until flush (`has_capacity` false). Debug assert `Nothing` before the next DATA holds.
+- `try_assign_capacity` skips only `is_pending_open`, not `is_pending_push`. A pushed child can be assigned the whole connection window before PP is flushed. Self-deadlock with parent DATA does not hold: PP is queued on the parent before the child exists, so it sits *ahead* of any later parent DATA. Earlier unassigned parent DATA implies some other open stream already holds conn capacity and can still send. Same hoard class as F76/F77, not a new hang. Optional hardening: skip assign while `is_pending_push` and `try_assign` when PP is popped (must add that call — today the PP path only `pending_send.push`).
 
 ## High priority next
 1. Package PRs for F3–F88.

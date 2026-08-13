@@ -4,11 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F88)
 
 ## Current focus
-F88: `poll_reset` missed wakeup on clean recv EOS (F31 residual).
+No new high-signal bug this fire (hang/FC/cancel/wakeup).
 
 ## Last actions
-1. Recv EOS (HEADERS/DATA/trailers) and local send EOS that fully close the stream now `notify_send`.
-2. Regression `poll_reset_woken_when_recv_eos_closes_stream` (park first, then peer EOS).
+1. `try_assign` does not skip `is_pending_push`. Child can hold connection capacity before PP is written.
+2. Not a self-deadlock: `send_push_promise` queues PP on the parent *before* the child handle can `reserve`/`send_data`. Later parent DATA is behind PP; earlier parent DATA either already has assignment or is blocked by a third stream that can still send.
+3. Residual is the same as any stream `reserve_capacity` hoarding (F76/F77), not an extra hang.
 
 ## Next recommended step
 1. Package PRs for F3–F88.
