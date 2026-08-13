@@ -9,19 +9,22 @@
 - **Fix branch:** `fix/pending-capacity-requeue-on-zero`
 
 ### F3 — Connection recv `in_flight` not released on non-Reset DATA errors
-- **Severity:** Medium — connection flow-control capacity leak after failed DATA processing post-window consume (e.g. library GoAway paths). Stream-window Reset was released by Streams; GoAway was not.
-- **Evidence:** `Streams::recv_data` only called `release_connection_capacity` on `Err(Reset)`; `recv_data` could return GoAway after `consume_connection_window`. Unit test `stream_window_error_releases_connection_in_flight`.
 - **Fix branch:** `fix/recv-data-error-releases-conn-capacity`
-- **Change:** release inside `recv_data` on any post-consume error; drop Streams-side release.
+
+### F4 — Sticky `poll_data` / `data()` errors after stream reset (#882)
+- **Severity:** Medium (API footgun / busy loop): after one `Some(Err(reset))`, further polls repeated the same error instead of ending the stream.
+- **Evidence:** `schedule_recv` used `ensure_recv_open()?` → `Poll::Ready(Some(Err(_)))` every time while state stayed `Closed(Error)`. Issue #882; seanmonstar notes local cancel stickiness.
+- **Note:** `#922` `ErrorAfterEndStream` already makes clean EOS+reset return `None` / `is_end_stream`. Sticky issue remains for errors without prior EOS.
+- **Fix branch:** `fix/recv-stream-error-not-sticky`
+- **Change:** `recv_err_delivered` flag; first error delivered once, then `None`. `is_end_stream()` still false for unclean end.
+- **Test:** `recv_stream_reset_error_is_not_sticky`.
 
 ## Instrumentation
-
 ### I1 — Send capacity conservation (debug) — holds
-### I2 — Recv in-flight conservation (debug) — holds when summing **slab**
-- Unlinked streams (closed, still referenced) keep `in_flight_recv_data`; do not sum only `ids`.
+### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
 
 ## Dismissed
 ### S1 — #853 — likely fixed by #860
 
 ## Suspects
-### S2 — Sticky `poll_data` after reset (#882)
+None active (S2 promoted to F4).
