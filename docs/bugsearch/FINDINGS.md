@@ -416,6 +416,12 @@
 - **Fix branch:** `fix/reject-duplicate-host`
 - **Change:** Reject `get_all(HOST).count() > 1` on server recv, client send (before promote), push convert, and `Send::check_headers`.
 
+### F73 — Userinfo in `Host` header accepted (Host-only path)
+- **Severity:** Medium (protocol / security): F44 rejects userinfo in `:authority` (`user:pass@host`). Origin-form requests with Host only still accepted `Host: user:pass@example.com` because `http::Authority` parses userinfo and `host()` is non-empty. RFC 9110 Host is `uri-host [ ":" port ]`.
+- **Evidence:** Peer GET with scheme+path+`Host: user:pass@example.com` (no `:authority`) → post-fix `RST_STREAM(PROTOCOL_ERROR)`. Regression: `reject_host_header_with_userinfo`.
+- **Fix branch:** `fix/reject-host-userinfo`
+- **Change:** Server Host-only path rejects `@` in Host before Authority parse (same as `:authority`).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

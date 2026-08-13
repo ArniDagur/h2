@@ -73,6 +73,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (pre-F72):** HPACK append allowed multiples; F42 compared only the first to `:authority`.
 - **Rust h2 (F72):** reject multi-Host on recv and generate.
 
+### Userinfo in Host / `:authority`
+- **RFC 9110 / 9113:** `:authority` and Host must not include userinfo (`user:pass@host`).
+- **Rust h2 (F44/F45):** reject userinfo in `:authority` (recv + generate URI).
+- **Rust h2 (pre-F73):** Host-only origin-form still accepted `Host: user@host` (`http::Authority` parses userinfo; `host()` non-empty).
+- **Rust h2 (F73):** Host-only path rejects `@` in Host (same as `:authority`).
+
 ### 101 Switching Protocols
 - **RFC 9113 §8.1:** HTTP/2 does not support 101 (Switching Protocols); Upgrade is not used on HTTP/2.
 - **Rust h2 (pre-F57):** 101 treated as ordinary informational 1xx on recv and generatable via `send_informational`.
