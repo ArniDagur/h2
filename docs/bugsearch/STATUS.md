@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F64 pending merge)
+**Branch tip:** `experimental/bugsearch` (F64 @ `ab2367a`)
 
 ## Current focus
 F64: TE: trailers case-insensitive comparison.
