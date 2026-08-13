@@ -31,6 +31,7 @@
 | `fix/push-convert-before-reserve` | F25 |
 | `fix/cap-reserved-push-streams` | F26 |
 | `fix/push-validate-before-reserve` | F27 |
+| `fix/client-validate-before-open` | F28 |
 
 ## experimental contains
-F1–F27, I1–I2, deadlock stress test, docs.
+F1–F28, I1–I2, deadlock stress test, docs.

@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F27 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F28 fixes; #853 dismiss; I1/I2 conservation.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -26,10 +26,11 @@
 - Push convert-before-reserve id burn → F25.
 - Reserved PP unbounded store → F26 (open+reserved cap = max concurrent).
 - Push validate (headers / push-disabled) before reserve → F27.
+- Client check_headers before open → F28.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F27.
+1. Package PRs for F3–F28.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -39,3 +40,4 @@
 - Idle-stream DATA is connection PROTOCOL_ERROR (RFC §5.1); streams not in store already GOAWAY — reserved-state DATA currently STREAM_CLOSED like Go (acceptable).
 - Separate configurable max reserved streams (currently tied to max concurrent).
 - Dedup connection-header checks (Send::check_headers vs convert_push_message copy).
+- poll_accept TODO: drop pending_accept when connection already closed (streams cleared on Drop).

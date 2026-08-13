@@ -142,6 +142,12 @@
 - **Fix branch:** `fix/push-validate-before-reserve`
 - **Change:** `is_push_enabled()` check before convert/reserve; connection-header check in `convert_push_message` (mirrors `Send::check_headers`).
 
+### F28 — Client connection-headers after `open()` burned stream ids
+- **Severity:** Low (resource / API): F21 converted before `open()`, but `check_headers` still ran only in `send_headers` after open+insert. Rejected requests (`Connection`, illegal `TE`, …) removed the stream but left `next_stream_id` advanced.
+- **Evidence:** `send_request` with `Connection: close` then a valid GET uses stream id **1** (not 3). Regression `connection_header_does_not_burn_stream_id`.
+- **Fix branch:** `fix/client-validate-before-open`
+- **Change:** `Send::check_headers(headers.fields())` after convert, before `open()`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
