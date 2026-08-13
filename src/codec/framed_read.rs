@@ -176,6 +176,10 @@ fn decode_frame(
             match frame.load_hpack(&mut payload, max_header_list_size, hpack) {
                 Ok(_) => {},
                 Err(frame::Error::Hpack(hpack::DecoderError::NeedMore(_))) if !is_end_headers => {},
+                // Stream-level malformed (Connection, TE, leading WS, …). Keep
+                // feeding CONTINUATION into the decoder until END_HEADERS so
+                // HPACK stays in sync; RST only once the block is complete.
+                Err(frame::Error::MalformedMessage) if !is_end_headers => {},
                 Err(frame::Error::MalformedMessage) => {
                     let id = $head.stream_id();
                     proto_err!(stream: "malformed header block; stream={:?}", id);
@@ -355,6 +359,7 @@ fn decode_frame(
             {
                 Ok(_) => {}
                 Err(frame::Error::Hpack(hpack::DecoderError::NeedMore(_))) if !is_end_headers => {}
+                Err(frame::Error::MalformedMessage) if !is_end_headers => {}
                 Err(frame::Error::MalformedMessage) => {
                     let id = head.stream_id();
                     proto_err!(stream: "malformed CONTINUATION frame; stream={:?}", id);

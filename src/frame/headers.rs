@@ -97,6 +97,15 @@ struct HeaderBlock {
     /// Set to true if decoding went over the max header list size.
     is_over_size: bool,
 
+    /// Stream-level malformed field seen while decoding this block.
+    ///
+    /// Must persist across CONTINUATION / `NeedMore` chunks: a connection
+    /// header (or similar) may be fully decoded in an early frame while HPACK
+    /// still needs more bytes. Forgetting the flag would accept the completed
+    /// block; returning the error before `END_HEADERS` would drop the block
+    /// and treat later CONTINUATION as a connection PROTOCOL_ERROR.
+    is_malformed: bool,
+
     /// Pseudo headers, these are broken out as they must be sent as part of the
     /// headers frame.
     pseudo: Pseudo,
@@ -125,6 +134,7 @@ impl Headers {
                 field_size: calculate_headermap_size(&fields),
                 fields,
                 is_over_size: false,
+                is_malformed: false,
                 pseudo,
             },
             flags: HeadersFlag::default(),
@@ -142,6 +152,7 @@ impl Headers {
                 field_size: calculate_headermap_size(&fields),
                 fields,
                 is_over_size: false,
+                is_malformed: false,
                 pseudo: Pseudo::default(),
             },
             flags,
@@ -207,6 +218,7 @@ impl Headers {
                 fields: HeaderMap::new(),
                 field_size: 0,
                 is_over_size: false,
+                is_malformed: false,
                 pseudo: Pseudo::default(),
             },
             flags,
@@ -389,6 +401,7 @@ impl PushPromise {
                 field_size: calculate_headermap_size(&fields),
                 fields,
                 is_over_size: false,
+                is_malformed: false,
                 pseudo,
             },
             promised_id,
@@ -480,6 +493,7 @@ impl PushPromise {
                 fields: HeaderMap::new(),
                 field_size: 0,
                 is_over_size: false,
+                is_malformed: false,
                 pseudo: Pseudo::default(),
             },
             promised_id,
@@ -937,7 +951,7 @@ impl HeaderBlock {
         decoder: &mut hpack::Decoder,
     ) -> Result<(), Error> {
         let mut reg = !self.fields.is_empty();
-        let mut malformed = false;
+        let mut malformed = self.is_malformed;
         let mut header_list_way_too_large = false;
         let mut headers_size = self.calculate_header_list_size();
         let max_header_list_abuse_size =
@@ -1054,17 +1068,22 @@ impl HeaderBlock {
         match res {
             Ok(()) => {}
             Err(e) => {
+                // Persist even on NeedMore so a later CONTINUATION still
+                // rejects the block (connection header in an earlier chunk).
+                self.is_malformed = malformed;
                 tracing::trace!("hpack decoding error; err={:?}", e);
                 return Err(e.into());
             }
         }
+
+        self.is_malformed = malformed;
 
         if header_list_way_too_large {
             tracing::trace!("header list way too large; aborting connection");
             return Err(Error::HeaderListWayTooLarge);
         }
 
-        if malformed {
+        if self.is_malformed {
             tracing::trace!("malformed message");
             return Err(Error::MalformedMessage);
         }
@@ -1447,5 +1466,47 @@ mod test {
                 }
             );
         }
+    }
+
+    #[test]
+    fn malformed_connection_header_persists_across_need_more() {
+        // `connection: close` is fully decoded, then `x-pad` is truncated so
+        // decode returns NeedMore. The malformed flag must survive; otherwise
+        // the completed block (after the rest of x-pad) is accepted.
+        let mut first = vec![0x82u8, 0x87, 0x84, 0x41, 0x0b];
+        first.extend_from_slice(b"example.com");
+        first.extend_from_slice(&[0x00, 0x0a]);
+        first.extend_from_slice(b"connection");
+        first.extend_from_slice(&[0x05]);
+        first.extend_from_slice(b"close");
+        first.extend_from_slice(&[0x00, 0x05]);
+        first.extend_from_slice(b"x-pad");
+        first.push(80);
+        first.extend(std::iter::repeat(b'x').take(10));
+        let second: Vec<u8> = std::iter::repeat(b'x').take(70).collect();
+
+        let mut decoder = crate::hpack::Decoder::new(4096);
+        let head = Head::new(Kind::Headers, END_HEADERS, 1.into());
+        let (mut headers, _) = Headers::load(head, BytesMut::new()).unwrap();
+
+        let mut chunk = BytesMut::from(&first[..]);
+        let err = headers
+            .load_hpack(&mut chunk, 16 << 20, &mut decoder)
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::Hpack(crate::hpack::DecoderError::NeedMore(_))),
+            "{err:?}"
+        );
+
+        // Leftover incomplete representation stays in `chunk` (same as
+        // framed_read Partial.buf); append the rest of the value.
+        chunk.extend_from_slice(&second);
+        let err = headers
+            .load_hpack(&mut chunk, 16 << 20, &mut decoder)
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::MalformedMessage),
+            "expected MalformedMessage after completing the block, got {err:?}"
+        );
     }
 }

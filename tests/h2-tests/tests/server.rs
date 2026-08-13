@@ -1049,6 +1049,53 @@ async fn recv_header_value_leading_trailing_ws_is_stream_error() {
     join(client, srv).await;
 }
 
+/// Connection-specific headers in a block that spans CONTINUATION.
+///
+/// The first 16KiB frame typically finishes `connection` and then `NeedMore`
+/// on a large following field. Pre-fix dropped the malformed flag (accepted
+/// the request) or, if decode completed the first frame, RST'd and treated
+/// the rest of the block as unexpected CONTINUATION (GOAWAY).
+#[tokio::test]
+async fn recv_connection_header_spanning_continuation_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let pad = "x".repeat(20_000);
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .field("connection", "close")
+                    .field("x-pad", pad)
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/ok")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::headers(3).response(200).eos()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().path(), "/ok");
+        let _ = stream.send_response(Response::builder().status(200).body(()).unwrap(), true);
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn sends_reset_no_error_when_req_body_is_dropped() {
     h2_support::trace_init!();
