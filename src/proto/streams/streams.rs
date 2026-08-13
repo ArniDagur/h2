@@ -336,6 +336,10 @@ where
         // Connection-specific headers are checked here too — `send_headers`
         // also validates, but that runs after open/insert.
         //
+        // RFC 9110 §8.6: differing multi Content-Length values make the
+        // message invalid (F39 receive). Reject on generate too.
+        validate_outbound_content_length(request.headers())?;
+
         // RFC 9113 §8.1.1: END_STREAM with non-zero Content-Length is
         // malformed (no DATA can follow). Peers reject this on receive.
         if end_of_stream && has_nonzero_content_length(request.headers()) {
@@ -1358,6 +1362,10 @@ impl<B> StreamRef<B> {
             }
         }
 
+        // RFC 9110 §8.6: differing multi Content-Length values make the
+        // message invalid (F39 receive). Reject on generate too.
+        validate_outbound_content_length(response.headers())?;
+
         // RFC 9110 §8.6: server MUST NOT send Content-Length on 204.
         // 205 requires an empty content section — non-zero CL is malformed.
         // 304 MAY include Content-Length of the selected representation.
@@ -1753,6 +1761,22 @@ fn has_nonzero_content_length(headers: &http::HeaderMap) -> bool {
             .map(|n| n > 0)
             .unwrap_or(true) // unparseable CL is treated as malformed
     })
+}
+
+/// Reject unparseable or mismatched multi Content-Length on generate paths.
+fn validate_outbound_content_length(headers: &http::HeaderMap) -> Result<(), UserError> {
+    let mut cl_iter = headers.get_all(http::header::CONTENT_LENGTH).iter();
+    let Some(first) = cl_iter.next() else {
+        return Ok(());
+    };
+    let first_val = frame::parse_u64(first.as_bytes()).map_err(|_| UserError::MalformedHeaders)?;
+    for other in cl_iter {
+        match frame::parse_u64(other.as_bytes()) {
+            Ok(v) if v == first_val => {}
+            _ => return Err(UserError::MalformedHeaders),
+        }
+    }
+    Ok(())
 }
 
 // TODO: Move back in fn above
