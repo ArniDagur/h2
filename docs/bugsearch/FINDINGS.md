@@ -9,24 +9,24 @@
 - **Change:** `ensure_recv_open(stream_id)` → `library_reset(stream_id, reason)`.
 
 ### F2 — Capacity-0 send path may leave stream off `pending_capacity`
-- **Severity:** Medium if hit (stream hang until stream-level WU or never); latent/defensive.
-- **Evidence:** `pop_frame` on `stream_capacity == 0` and `len > window_size`, and `push_back_frame` when `available == 0`, only buffered the frame and dropped the stream from `pending_send` without ensuring `pending_capacity`. Comment had TODO `debug_assert!(is_pending_send_capacity)`.
-- **Normal path:** `try_assign_capacity` usually already queued `pending_capacity` when `has_unavailable`; hang requires stream to lose that membership.
+- **Severity:** Medium if hit (stream hang); latent/defensive.
+- **Evidence:** `pop_frame` / `push_back_frame` deferred without ensuring `pending_capacity`.
 - **Fix branch:** `fix/pending-capacity-requeue-on-zero`
-- **Change:** if `has_unavailable()`, `pending_capacity.push` after capacity-0 deferral / partial-frame reclaim.
 - **Test:** `connection_window_update_resumes_starved_buffered_stream`.
+
+## Dismissed / not reproduced
+
+### S1 — #853 connection capacity logical deadlock → **likely fixed by #860**
+- Stress test `logical_deadlock_max_concurrent_streams_stress` (50×40 POSTs, max_concurrent=10) passes repeatedly.
+- #860: no capacity assign while `is_pending_open`.
+- #930: `RecvStream` drop releases connection capacity (helps tests that forget explicit release).
+- Caveat: original PR #852 harness lacked `release_capacity` / `ready()`; pure FC stall can look like deadlock. Reopen only with a harness that releases windows and still hangs.
 
 ## Suspects
 
-### S1 — #853 connection capacity logical deadlock
-- Open upstream. #860 stops assigning capacity to `pending_open` streams — may have fixed. Still needs stress confirmation.
-
 ### S2 — Sticky `poll_data` errors after reset (#882)
-- After non-EOS reset, `ensure_recv_open` keeps returning `Err`; `is_end_stream()` false. EOS+reset improved by #922. API ergonomics / Stream contract gray area.
-
-### S3 — (promoted to F2) capacity-0 requeue
-- Was suspect; now hardened as F2.
+- After non-EOS reset, `ensure_recv_open` keeps returning `Err`; `is_end_stream()` false. EOS+reset improved by #922. API ergonomics gray area.
 
 ## Not bugs / intentional
 - `RecvStream` drop releases connection FC (#930) but not stream window: peer blocks on that stream only.
-- Skipping closed streams in `assign_connection_capacity`: capacity remains on connection `flow.available`, not orphaned.
+- Skipping closed streams in `assign_connection_capacity`: capacity remains on connection `flow.available`.
