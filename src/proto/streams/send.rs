@@ -187,6 +187,12 @@ impl Send {
             frame.stream_id()
         );
 
+        // Final response (or reset/close) already sent: 1xx must precede it
+        // (RFC 9110). Docs promise an error; previously frames were still queued.
+        if !stream.state.is_send_informational_allowed() {
+            return Err(UserError::UnexpectedFrameType);
+        }
+
         // Validate headers
         Self::check_headers(frame.fields())?;
 

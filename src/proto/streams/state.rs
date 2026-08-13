@@ -449,6 +449,19 @@ impl State {
         )
     }
 
+    /// Interim 1xx HEADERS may be sent only before the final response headers.
+    /// Same send-half states that accept `send_open` for the final response.
+    pub fn is_send_informational_allowed(&self) -> bool {
+        matches!(
+            self.inner,
+            Open {
+                local: AwaitingHeaders,
+                ..
+            } | HalfClosedRemote(AwaitingHeaders)
+                | ReservedLocal
+        )
+    }
+
     pub fn is_idle(&self) -> bool {
         matches!(self.inner, Idle)
     }

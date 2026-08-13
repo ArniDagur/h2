@@ -601,3 +601,60 @@ async fn too_many_informational_responses_is_stream_error() {
 
     join(srv, client).await;
 }
+
+/// Docs: send_informational errors after the final response was sent.
+/// Pre-fix still queued 1xx HEADERS on a closed/half-closed send half.
+#[tokio::test]
+async fn send_informational_after_final_response_is_user_error() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+
+        // Only the final 200; no 1xx after it.
+        client
+            .recv_frame(frames::headers(1).response(StatusCode::OK).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        stream
+            .send_response(
+                Response::builder().status(StatusCode::OK).body(()).unwrap(),
+                true,
+            )
+            .expect("final response");
+
+        let cont = Response::builder()
+            .status(StatusCode::CONTINUE)
+            .body(())
+            .unwrap();
+        let err = stream
+            .send_informational(cont)
+            .expect_err("1xx after final response must fail");
+        assert!(
+            err.to_string().contains("user error")
+                || err.to_string().contains("unexpected")
+                || err.to_string().contains("already"),
+            "got {}",
+            err
+        );
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
