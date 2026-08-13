@@ -19,12 +19,22 @@
 - **Change:** `recv_err_delivered` flag; first error delivered once, then `None`. `is_end_stream()` still false for unclean end.
 - **Test:** `recv_stream_reset_error_is_not_sticky`.
 
+### F5 — Shared `send_task` steals `SendRequest::ready` waker (pending_open)
+- **Severity:** Medium (missed wakeup / hang): while stream N is `pending_open`, `SendRequest` parks `poll_ready` on `stream.send_task`. Concurrent `SendStream::poll_capacity` (or `poll_reset`) on the same stream overwrites that waker. When a concurrent slot frees, `pop_pending_open` only wakes the capacity waiter → `ready()` hangs until timeout/cancel.
+- **Evidence:** Regression `pending_open_ready_not_stolen_by_poll_capacity` times out without fix; passes with separate open waker. Requires peer `max_concurrent_streams` already applied (warm-up request) so `pending` is set on `SendRequest`.
+- **Fix branch:** `fix/pending-open-send-task-waker`
+- **Change:** `Stream::open_task` + `wait_open`/`notify_open`; `poll_pending_open` uses open slot; open/reset/EOF paths notify both.
+- **Note:** `poll_capacity` and `poll_reset` still share `send_task` (single `SendStream` owner; typical `select!` is same task).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
 
 ## Dismissed
 ### S1 — #853 — likely fixed by #860
+### S2 — sticky poll → promoted to F4
+### #878 — `try_assign_capacity` debug_assert on cancelled stream — fixed upstream `#893` / present on experimental
+### #880 — implicit RST blocked behind buffered DATA — fixed upstream `#896`
 
 ## Suspects
-None active (S2 promoted to F4).
+None active.
