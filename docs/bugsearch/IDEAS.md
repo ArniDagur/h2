@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F66 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F82 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -80,6 +80,7 @@
 - DATA on pending_open treated as STREAM_CLOSED (F23 over-broad) → F79.
 - RecvStream drop after poll_data leaked unreleased in_flight (SendStream held) → F80.
 - SendStream drop without EOS did not RST while ResponseFuture lived → F81.
+- Local HEADER_TABLE_SIZE increase applied only on SETTINGS_ACK → F82 (F10 sibling; connection-kill).
 - CodecFull poll_complete + send_data with task unset: codec write waker resumes; not a missed wake.
 - Graceful shutdown infinite wait for shutdown PING ACK: RFC 1-RTT; Go times out ~1s; h2 `abrupt_shutdown` is the escape — policy, not a library hang.
 - Pre-existing test failures (`recv_too_big_headers`, `srv_window_update_on_lower_stream_id`, `recv_invalid_push_promise_headers_is_stream_protocol_error`): stale after F74/F36/F32, not new library bugs.
@@ -91,7 +92,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F81.
+1. Package PRs for F3–F82.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

@@ -260,6 +260,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F78):** after headers, `SendResponse` releases send ownership; `SendStream` drop reclaims unused reservation.
 - **Verdict:** h2-local assignment model; not a Go/nghttp2 mismatch.
 
+### Local SETTINGS_HEADER_TABLE_SIZE increase timing (decode)
+- **Go:** decoder is constructed at the configured `MaxDecoderHeaderTableSize` from connection start (increase is live before SETTINGS_ACK).
+- **RFC 7541 §4.2:** a dynamic table size update MUST appear at the start of the first header block after the SETTINGS change; that block may precede SETTINGS_ACK.
+- **Rust h2 (pre-F82):** decoder started at 4096; `queue_size_update` only on SETTINGS_ACK → size update to the new max was PROTOCOL_ERROR.
+- **Rust h2 (F82):** increases applied when SETTINGS is written (handshake + mid-connection send); decreases still on ACK.
+- **Verdict:** F82 is an h2-local race fix, same class as F10; aligns with Go and RFC 7541.
+
 ### Graceful GOAWAY + 1-RTT PING
 - **Go:** after initial GOAWAY, `goAwayTimeout` (~1s) then close if not idle.
 - **Rust h2:** wait indefinitely for shutdown-PING ACK before the second GOAWAY; `abrupt_shutdown` closes now.

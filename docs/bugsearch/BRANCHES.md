@@ -85,6 +85,7 @@
 | `fix/data-on-pending-open-is-conn-error` | F79 |
 | `fix/recv-drop-releases-read-unreleased-capacity` | F80 |
 | `fix/drop-send-without-eos-resets` | F81 |
+| `fix/local-header-table-increase-before-ack` | F82 |
 
 ## experimental contains
-F1–F81, I1–I2, deadlock stress test, docs.
+F1–F82, I1–I2, deadlock stress test, docs.

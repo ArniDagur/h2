@@ -471,6 +471,13 @@
 - **Fix branch:** `fix/drop-send-without-eos-resets`
 - **Change:** Last owning send-ref (`send_ref_count == 0`) after reclaim, if send half still open, `schedule_implicit_reset(CANCEL)` (pending_open abort / F18 pending_push paths unchanged).
 
+### F82 — Local HEADER_TABLE_SIZE increase applied only on SETTINGS_ACK
+- **Severity:** Medium (correctness / connection-kill): F10 sibling. RFC 7541 §4.2: the peer may emit a dynamic table size update on the first header block after processing our SETTINGS. That block can arrive before SETTINGS_ACK. Decoder started at 4096 and only `queue_size_update` on ACK, so a size update to the new max was `InvalidMaxDynamicSize` → GOAWAY PROTOCOL_ERROR.
+- **Evidence:** `header_table_size(10000)` then peer HEADERS with size-update 10000 and no ACK: pre-fix connection HPACK/PROTOCOL_ERROR; post-fix 200 delivered. Server path: request HEADERS with the same update accepted. Units: `queue_size_increase_accepts_update_before_ack_applied`. Decreases still apply on ACK (peer must shrink first).
+- **Fix branch:** `fix/local-header-table-increase-before-ack`
+- **Change:** On send of local SETTINGS (handshake + mid-connection `ToSend`), `set_recv_header_table_size_increase` (no-op unless larger). ACK path still `set_recv_header_table_size` for decreases.
+- **Matches Go:** Go constructs the decoder at the configured max from the start.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

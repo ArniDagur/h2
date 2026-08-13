@@ -1,19 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F81)
+**Branch tip:** `experimental/bugsearch` (F82)
 
 ## Current focus
-No new library bug this fire.
+F82 — local HEADER_TABLE_SIZE increase applied only on SETTINGS_ACK (connection-kill race).
 
 ## Last actions
-1. Checked CodecFull `poll_complete` + user `send_data` while `actions.task` is unset: parked on codec write waker; next poll drains the new frames.
-2. Graceful shutdown waits forever for shutdown-PING ACK (no timeout). Go uses ~1s `goAwayTimeout`. h2 has `abrupt_shutdown`; treat as policy, not a correctness hang.
-3. GOAWAY + `pending_open`: `handle_error` → `is_reset` + empty queue → `abort_closed_pending_open`.
-4. F81 + `send_request(..., true)` still pending_open: send half closed, no RST; HEADERS+EOS wait for a slot. Correct.
+1. Found F10-class race: decoder stayed at 4096 until SETTINGS_ACK; peer size-update to builder `header_table_size` was InvalidMaxDynamicSize → GOAWAY.
+2. Apply increases when SETTINGS is written (handshake + mid-connection); decreases still on ACK.
+3. Tests: `header_table_size_increase_applied_before_settings_ack`, `server_header_table_size_increase_applied_before_settings_ack`, decoder units.
 
 ## Next recommended step
-1. Package PRs for F3–F81.
+1. Package PRs for F3–F82.
 2. Residual #848 API ready-at-max-open.
 3. Optional test hygiene: S4 stale tests + F29 drain loop.
 
