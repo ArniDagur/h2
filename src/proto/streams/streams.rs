@@ -1728,9 +1728,21 @@ fn maybe_cancel(stream: &mut store::Ptr, actions: &mut Actions, counts: &mut Cou
         // Server is allowed to early respond without fully consuming the client input stream
         // But per the RFC, must send a RST_STREAM(NO_ERROR) in such cases. https://www.rfc-editor.org/rfc/rfc7540#section-8.1
         // Some other http2 implementation may interpret other error code as fatal if not respected (i.e: nginx https://trac.nginx.org/nginx/ticket/2376)
+        //
+        // NO_ERROR waits for remaining response DATA to flush (pop_frame). That
+        // only makes progress if the stream window can still open. If the peer
+        // advertised INITIAL_WINDOW_SIZE=0 (window already 0) and there is still
+        // unsent body, waiting forever for a WINDOW_UPDATE hangs the connection.
+        // Use CANCEL so #896 discards the unsendable body and emits RST promptly.
+        // Mid-response window exhaustion after some DATA was sent still uses
+        // NO_ERROR and waits for peer WU (normal flow control).
+        let can_flush_response = stream.buffered_send_data == 0
+            || stream.send_flow.window_size() > 0
+            || stream.send_flow.available() > 0;
         let reason = if counts.peer().is_server()
             && stream.state.is_send_closed()
             && stream.state.is_recv_streaming()
+            && can_flush_response
         {
             Reason::NO_ERROR
         } else {

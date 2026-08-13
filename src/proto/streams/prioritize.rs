@@ -815,6 +815,8 @@ impl Prioritize {
                                 // NO_ERROR is excluded. Per RFC 9113 §8.1, a NO_ERROR
                                 // stream reset may only be sent after a complete
                                 // response, which requires sending all queued DATA.
+                                // (If the stream window was already 0 at schedule
+                                // time, maybe_cancel uses CANCEL instead — see F30.)
                                 if reason != Reason::NO_ERROR {
                                     stream.pending_send.push_front(buffer, frame.into());
                                     self.clear_queue(buffer, &mut stream, counts);

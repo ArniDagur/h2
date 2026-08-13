@@ -977,6 +977,55 @@ async fn no_error_response_body_delivered_before_rst() {
     join(client, srv).await;
 }
 
+/// F30 residual of #896: early-response NO_ERROR waits to flush response DATA.
+/// If the peer advertised INITIAL_WINDOW_SIZE=0, that DATA can never leave and
+/// a NO_ERROR schedule would hang the connection. maybe_cancel must use CANCEL
+/// when the stream window is already closed so the body is discarded and RST
+/// is emitted promptly.
+#[tokio::test]
+async fn early_response_zero_window_uses_cancel_not_hang() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client
+            .assert_server_handshake_with_settings(frames::settings().initial_window_size(0))
+            .await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        client.recv_frame(frames::headers(1).response(200)).await;
+        // CANCEL (not NO_ERROR): response body is unsendable under zero window.
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::reset(1).cancel()),
+        )
+        .await
+        .expect("RST_STREAM not received within 2s with zero stream window");
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        {
+            let (req, mut stream) = srv.next().await.unwrap().unwrap();
+            assert_eq!(req.method(), &http::Method::POST);
+            let rsp = http::Response::builder().status(200).body(()).unwrap();
+            let mut tx = stream.send_response(rsp, false).unwrap();
+            // Buffer body with EOS while peer stream window is 0.
+            tx.send_data(vec![0; 10].into(), true).unwrap();
+            // Drop handles → must not schedule NO_ERROR (would hang).
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            assert!(srv.next().await.is_none());
+        })
+        .await
+        .expect("server connection hung with early response + zero window");
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn abrupt_shutdown() {
     h2_support::trace_init!();
