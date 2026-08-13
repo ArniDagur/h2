@@ -60,6 +60,7 @@
 | `fix/poll-informational-after-final-none` | F54 |
 | `fix/reject-server-enable-push-one` | F55 |
 | `fix/reserve-capacity-clamp-max-window` | F56 |
+| `fix/reject-101-switching-protocols` | F57 |
 
 ## experimental contains
-F1–F56, I1–I2, deadlock stress test, docs.
+F1–F57, I1–I2, deadlock stress test, docs.

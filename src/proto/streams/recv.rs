@@ -208,6 +208,20 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
         }
 
+        // RFC 9113 §8.1: HTTP/2 does not support 101 Switching Protocols
+        // (HTTP/1.1 Upgrade). Treat as a stream PROTOCOL_ERROR before recv_open.
+        if !counts.peer().is_server() {
+            if let Some(status) = frame.pseudo().status {
+                if status == http::StatusCode::SWITCHING_PROTOCOLS {
+                    proto_err!(
+                        stream: "recv_headers: 101 Switching Protocols not allowed in HTTP/2; stream={:?}",
+                        stream.id
+                    );
+                    return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
+                }
+            }
+        }
+
         // RFC 9110: 204/205/304 responses are terminated by the header section
         // and cannot include content or trailers. Without END_STREAM the peer
         // could send DATA as a body (accepted pre-fix). Reject before recv_open.

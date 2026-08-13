@@ -53,6 +53,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F35):** hard cap 5 per stream; further 1xx → ENHANCE_YOUR_CALM (always, including when user polls informational).
 - **Verdict:** F35 matches Go intent; slightly stricter when user drains 1xx (still capped at 5 total).
 
+### 101 Switching Protocols
+- **RFC 9113 §8.1:** HTTP/2 does not support 101 (Switching Protocols); Upgrade is not used on HTTP/2.
+- **Rust h2 (pre-F57):** 101 treated as ordinary informational 1xx on recv and generatable via `send_informational`.
+- **Rust h2 (F57):** stream PROTOCOL_ERROR on recv; `InvalidInformationalStatusCode` on generate.
+- **Verdict:** F57 aligns with RFC; HTTP/1.1 Upgrade must not be carried over HTTP/2.
+
 ### Response HEADERS missing `:status`
 - **Go:** `"malformed response from server: missing status pseudo header"`.
 - **Rust h2 (pre-F36):** `http::Response::builder` defaulted to 200 OK.

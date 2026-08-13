@@ -121,7 +121,7 @@ use crate::proto::{self, Config, Error, Prioritized};
 use crate::{FlowControl, PingPong, RecvStream, SendStream};
 
 use bytes::{Buf, Bytes};
-use http::{HeaderMap, Method, Request, Response};
+use http::{HeaderMap, Method, Request, Response, StatusCode};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -1174,6 +1174,17 @@ impl<B: Buf> SendResponse<B> {
             tracing::trace!(
                 "invalid informational status code: {} on stream: {:?}",
                 status,
+                stream_id
+            );
+            return Err(crate::Error::from(
+                UserError::InvalidInformationalStatusCode,
+            ));
+        }
+
+        // RFC 9113 §8.1: HTTP/2 does not support 101 Switching Protocols.
+        if response.status() == StatusCode::SWITCHING_PROTOCOLS {
+            tracing::trace!(
+                "101 Switching Protocols not allowed on stream: {:?}",
                 stream_id
             );
             return Err(crate::Error::from(

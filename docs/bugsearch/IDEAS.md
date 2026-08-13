@@ -55,6 +55,7 @@
 - `poll_informational` hang after final response → F54.
 - Server SETTINGS_ENABLE_PUSH = 1 → F55.
 - `reserve_capacity` silent truncation → F56.
+- 101 Switching Protocols accepted → F57.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - TE not exactly `trailers`: already rejected in load_hpack (`value != "trailers"`).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
@@ -64,7 +65,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F56.
+1. Package PRs for F3–F57.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

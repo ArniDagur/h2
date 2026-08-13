@@ -320,6 +320,12 @@
 - **Fix branch:** `fix/reserve-capacity-clamp-max-window`
 - **Change:** Clamp public API to `MAX_WINDOW_SIZE`; prioritize effective request = min(requested+buffered, MAX_WINDOW_SIZE); send_data implicit request same.
 
+### F57 — 101 Switching Protocols accepted on HTTP/2
+- **Severity:** Medium (protocol): RFC 9113 §8.1 states HTTP/2 does not support the 101 (Switching Protocols) informational status code (HTTP/1.1 Upgrade). Pre-fix, a peer 101 was treated as a normal 1xx and queued for `poll_informational`; `send_informational(101)` also succeeded and would emit illegal HEADERS.
+- **Evidence:** Peer 101 → post-fix `RST_STREAM(PROTOCOL_ERROR)`; connection remains usable. Server `send_informational(SWITCHING_PROTOCOLS)` → `InvalidInformationalStatusCode`. 100/103 paths unchanged. Regressions: `switching_protocols_101_is_stream_error`, `send_informational_rejects_101_switching_protocols`.
+- **Fix branch:** `fix/reject-101-switching-protocols`
+- **Change:** Client `recv_headers` rejects `:status` 101 before `recv_open`; `SendResponse::send_informational` rejects 101.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

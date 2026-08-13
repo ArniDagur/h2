@@ -517,6 +517,92 @@ async fn informational_responses_with_body_streaming() {
     join(client, srv).await;
 }
 
+/// RFC 9113 §8.1: HTTP/2 does not support 101 Switching Protocols.
+#[tokio::test]
+async fn switching_protocols_101_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(101)).await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let err = conn
+            .drive(resp)
+            .await
+            .expect_err("101 Switching Protocols must error");
+        assert!(err.is_reset(), "expected stream reset, got {}", err);
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+
+/// RFC 9113 §8.1: servers must not generate 101 Switching Protocols.
+#[tokio::test]
+async fn send_informational_rejects_101_switching_protocols() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+
+        client
+            .recv_frame(frames::headers(1).response(StatusCode::OK).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let switching = Response::builder()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+            .body(())
+            .unwrap();
+        let result = stream.send_informational(switching);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("invalid informational status code"));
+
+        let rsp = Response::builder().status(StatusCode::OK).body(()).unwrap();
+        stream.send_response(rsp, true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9113 §8.1 / Go: informational (1xx) HEADERS must not set END_STREAM.
 /// Pre-fix h2 half-closed the receive half and queued InformationalHeaders,
 /// leaving the client without a final response.

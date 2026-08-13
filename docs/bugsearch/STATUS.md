@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` @ `5cab42a`
+**Branch tip:** `experimental/bugsearch` @ `eef2aff`
 
 ## Current focus
-F56: `reserve_capacity` silent `as WindowSize` truncation.
+F57: 101 Switching Protocols not allowed in HTTP/2.
 
 ## Last actions
-1. Confirmed **F56**: `SendStream::reserve_capacity(usize)` cast to `u32` truncated large values (e.g. 2^32+n → n); prioritize used `WindowSize::MAX` (u32::MAX) not HTTP/2 max (2^31-1).
-2. Fix: clamp public API and prioritize requested capacity to `MAX_WINDOW_SIZE`.
-3. Regression: `reserve_capacity_clamps_to_max_window_size`.
+1. Confirmed **F57**: RFC 9113 §8.1 forbids 101 Switching Protocols; pre-fix accepted as 1xx on recv and generate.
+2. Fix: stream PROTOCOL_ERROR on recv 101; `send_informational` rejects 101.
+3. Regressions: `switching_protocols_101_is_stream_error`, `send_informational_rejects_101_switching_protocols`.
 
 ## Next recommended step
-1. Package PRs for F3–F56.
+1. Package PRs for F3–F57.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 
