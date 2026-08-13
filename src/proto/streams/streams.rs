@@ -1065,7 +1065,9 @@ where
             let mut stream = me.store.resolve(pending.key);
             tracing::trace!("poll_pending_open; stream = {:?}", stream.is_pending_open);
             if stream.is_pending_open {
-                stream.wait_send(cx);
+                // Park on open_task, not send_task: SendStream::poll_capacity /
+                // poll_reset also use send_task and would steal this waker.
+                stream.wait_open(cx);
                 return Poll::Pending;
             }
         }

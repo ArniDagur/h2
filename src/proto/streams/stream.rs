@@ -51,6 +51,13 @@ pub(super) struct Stream {
     /// Task tracking additional send capacity (i.e. window updates).
     send_task: Option<Waker>,
 
+    /// Task waiting for the stream to leave `pending_open` (SendRequest::poll_ready).
+    ///
+    /// Kept separate from `send_task`: `poll_capacity` / `poll_reset` on the
+    /// stream's `SendStream` also park on `send_task`, and a single slot would
+    /// drop the other waiter (missed wakeup).
+    open_task: Option<Waker>,
+
     /// Frames pending for this stream being sent to the socket
     pub pending_send: buffer::Deque,
 
@@ -176,6 +183,7 @@ impl Stream {
             requested_send_capacity: 0,
             buffered_send_data: 0,
             send_task: None,
+            open_task: None,
             pending_send: buffer::Deque::new(),
             is_pending_send_capacity: false,
             next_pending_send_capacity: None,
@@ -376,6 +384,16 @@ impl Stream {
         self.send_task = Some(cx.waker().clone());
     }
 
+    pub fn notify_open(&mut self) {
+        if let Some(task) = self.open_task.take() {
+            task.wake();
+        }
+    }
+
+    pub fn wait_open(&mut self, cx: &Context) {
+        self.open_task = Some(cx.waker().clone());
+    }
+
     pub fn notify_recv(&mut self) {
         if let Some(task) = self.recv_task.take() {
             task.wake();
@@ -389,10 +407,11 @@ impl Stream {
     }
 
     /// Set the stream's state to `Closed` with the given reason and initiator.
-    /// Notify the send, receive, and push tasks, if they exist.
+    /// Notify the send, receive, open, and push tasks, if they exist.
     pub(super) fn set_reset(&mut self, reason: Reason, initiator: Initiator) {
         self.state.set_reset(self.id, reason, initiator);
         self.notify_send();
+        self.notify_open();
         self.notify_push();
         self.notify_recv();
     }
@@ -411,6 +430,7 @@ impl fmt::Debug for Stream {
             .field("requested_send_capacity", &self.requested_send_capacity)
             .field("buffered_send_data", &self.buffered_send_data)
             .h2_field_some("send_task", &self.send_task.as_ref().map(|_| ()))
+            .h2_field_some("open_task", &self.open_task.as_ref().map(|_| ()))
             .h2_field_if_then(
                 "pending_send",
                 !self.pending_send.is_empty(),

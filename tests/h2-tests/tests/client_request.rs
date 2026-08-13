@@ -1235,6 +1235,136 @@ async fn drop_pending_open() {
     join(srv, client).await;
 }
 
+/// `SendRequest::poll_ready` (pending_open) and `SendStream::poll_capacity`
+/// used to share a single `send_task` waker slot. Concurrent waiters lost
+/// wakeups: capacity registration stole the ready waker, so after a concurrent
+/// stream slot freed, `poll_ready` never resumed.
+#[tokio::test]
+async fn pending_open_ready_not_stolen_by_poll_capacity() {
+    h2_support::trace_init!();
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    let (io, mut srv) = mock::new();
+    let (release_tx, release_rx) = oneshot::channel();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(
+                frames::settings().max_concurrent_streams(1),
+            )
+            .await;
+        assert_default_settings!(settings);
+
+        // Warm-up request so the client applies SETTINGS before the race.
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/warmup")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+
+        // Slot holder.
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/hold")
+                .eos(),
+        )
+        .await;
+        release_rx.await.unwrap();
+        srv.send_frame(frames::headers(3).response(200).eos()).await;
+
+        // Pending-open stream after hold frees the slot.
+        srv.recv_frame(frames::headers(5).request("POST", "https://example.com/body"))
+            .await;
+        srv.recv_frame(frames::data(5, "hi").eos()).await;
+        srv.send_frame(frames::headers(5).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+
+        // Drive SETTINGS + warm-up so max_concurrent_streams=1 is active.
+        let warmup = Request::builder()
+            .uri("https://example.com/warmup")
+            .body(())
+            .unwrap();
+        let (warmup_resp, _) = client.send_request(warmup, true).unwrap();
+        conn.drive(warmup_resp).await.unwrap();
+
+        // Fill the single concurrent slot.
+        let hold = Request::builder()
+            .uri("https://example.com/hold")
+            .body(())
+            .unwrap();
+        let (hold_resp, _) = client.send_request(hold, true).unwrap();
+        // Tick so the hold stream is counted against max concurrent.
+        client = conn.drive(client.ready()).await.unwrap();
+
+        // This stream stays pending_open; original SendRequest keeps `pending`
+        // (Clone clears it).
+        let body_req = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/body")
+            .body(())
+            .unwrap();
+        let (body_resp, mut send_body) = client.send_request(body_req, false).unwrap();
+        send_body.reserve_capacity(2);
+
+        // Connection on a separate task so missed wakeups hang instead of
+        // progressing via drive().
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        // Park ready() first (open_task), then poll_capacity (send_task).
+        let ready_handle = tokio::spawn(async move {
+            client.ready().await.expect("ready after open")
+        });
+        tokio::task::yield_now().await;
+
+        let (cap_registered_tx, cap_registered_rx) = oneshot::channel();
+        let cap_handle = tokio::spawn(async move {
+            let mut registered = Some(cap_registered_tx);
+            let cap = poll_fn(|cx| {
+                let poll = send_body.poll_capacity(cx);
+                if let Some(tx) = registered.take() {
+                    let _ = tx.send(());
+                }
+                poll
+            })
+            .await
+            .expect("capacity ended")
+            .expect("capacity err");
+            send_body
+                .send_data(Bytes::from_static(b"hi"), true)
+                .expect("send_data");
+            cap
+        });
+        cap_registered_rx.await.expect("cap registered");
+
+        // Free the concurrent slot so the pending stream can open.
+        let _ = release_tx.send(());
+        let _ = hold_resp.await;
+
+        let _client = tokio::time::timeout(Duration::from_secs(2), ready_handle)
+            .await
+            .expect("SendRequest::ready hung (open waker stolen by poll_capacity)")
+            .expect("ready task join");
+
+        let cap = tokio::time::timeout(Duration::from_secs(2), cap_handle)
+            .await
+            .expect("poll_capacity hung")
+            .expect("cap task join");
+        assert!(cap > 0);
+
+        let _ = body_resp.await;
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn malformed_response_headers_dont_unlink_stream() {
     // This test checks that receiving malformed headers frame on a stream with
