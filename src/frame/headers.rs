@@ -624,6 +624,18 @@ impl Pseudo {
             && self.status.is_none()
     }
 
+    /// True if any request-only pseudo-header is present.
+    ///
+    /// RFC 9113 §8.3.2 forbids these on responses (and §8.1 forbids them in
+    /// trailer sections, which is checked via `is_none` on the full Pseudo).
+    pub(crate) fn has_request_pseudos(&self) -> bool {
+        self.method.is_some()
+            || self.scheme.is_some()
+            || self.authority.is_some()
+            || self.path.is_some()
+            || self.protocol.is_some()
+    }
+
     #[cfg(feature = "unstable")]
     pub fn set_status(&mut self, value: StatusCode) {
         self.status = Some(value);

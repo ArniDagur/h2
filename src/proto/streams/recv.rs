@@ -223,6 +223,17 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
         }
 
+        // RFC 9113 §8.3.2: responses MUST NOT include request pseudo-header
+        // fields (:method, :scheme, :authority, :path, :protocol). Check before
+        // recv_open so RST is still emitted after request EOS.
+        if !counts.peer().is_server() && frame.pseudo().has_request_pseudos() {
+            proto_err!(
+                stream: "recv_headers: request pseudo-header on response; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
+        }
+
         let is_initial = stream.state.recv_open(&frame)?;
 
         if is_initial {

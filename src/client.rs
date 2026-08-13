@@ -1707,6 +1707,17 @@ impl proto::Peer for Peer {
                 return Err(Error::library_reset(stream_id, Reason::PROTOCOL_ERROR));
             }
         };
+
+        // Defensive: request pseudos on responses are rejected before recv_open
+        // in Recv::recv_headers; keep the check here too for convert-only paths.
+        if pseudo.has_request_pseudos() {
+            proto_err!(
+                stream: "malformed headers: request pseudo-header on response; stream={:?}",
+                stream_id
+            );
+            return Err(Error::library_reset(stream_id, Reason::PROTOCOL_ERROR));
+        }
+
         b = b.status(status);
 
         let mut response = match b.body(()) {

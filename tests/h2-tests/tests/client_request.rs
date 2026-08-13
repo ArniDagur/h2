@@ -3142,3 +3142,54 @@ async fn response_headers_missing_status_is_stream_error() {
 
     join(srv, client).await;
 }
+
+/// RFC 9113 §8.3.2: responses MUST NOT include request pseudo-headers
+/// (:method, :scheme, :authority, :path, :protocol). Pre-fix accepted
+/// `:status` + `:method` as a normal 200 response.
+#[tokio::test]
+async fn response_headers_with_request_pseudo_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // :status present but also :method — malformed response.
+        srv.send_frame(
+            frames::headers(1)
+                .pseudo(frame::Pseudo {
+                    status: StatusCode::OK.into(),
+                    method: Method::GET.into(),
+                    ..Default::default()
+                })
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let err = conn
+            .drive(resp)
+            .await
+            .expect_err("response with request pseudo must error");
+        assert!(err.is_reset(), "expected stream reset, got {}", err);
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
