@@ -83,5 +83,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F40):** stream PROTOCOL_ERROR on recv; `MalformedHeaders` on send.
 - **Verdict:** F40 aligns with RFC sender/receiver framing rules for trailers.
 
+### GOAWAY stream identifier
+- **RFC 9113 §6.8:** GOAWAY MUST be associated with stream 0; else connection PROTOCOL_ERROR.
+- **Rust h2 (pre-F41):** `GoAway::load` ignored frame header stream id (SETTINGS/PING already checked stream 0).
+- **Rust h2 (F41):** non-zero stream id → `InvalidStreamId` → connection PROTOCOL_ERROR.
+- **Verdict:** F41 aligns with RFC / other connection-oriented frame loaders in h2.
+
 ## Planned comparisons
 - Residual #848 API design.

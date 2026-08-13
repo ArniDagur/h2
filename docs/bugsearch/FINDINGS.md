@@ -224,6 +224,12 @@
 - **Fix branch:** `fix/reject-content-length-in-trailers`
 - **Change:** `recv_trailers` rejects `CONTENT_LENGTH` before `recv_close`; `send_trailers` returns `MalformedHeaders` before state transition.
 
+### F41 — GOAWAY with non-zero stream id accepted
+- **Severity:** Medium (protocol): RFC 9113 §6.8 requires GOAWAY frames to be associated with stream 0; any other stream identifier is a connection error PROTOCOL_ERROR. `Settings::load` / `Ping::load` already enforced stream 0; `GoAway::load` only took the payload and ignored the frame header stream id.
+- **Evidence:** Raw GOAWAY frame with stream_id=1, last_stream_id=0, NO_ERROR — pre-fix decoded as a normal GoAway; post-fix codec error PROTOCOL_ERROR. Regression `read_goaway_nonzero_stream_id_is_connection_error`. Valid stream-0 GOAWAY with debug data still works.
+- **Fix branch:** `fix/goaway-requires-stream-zero`
+- **Change:** `GoAway::load(head, payload)` returns `InvalidStreamId` when `!head.stream_id().is_zero()`; `framed_read` passes `head`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
