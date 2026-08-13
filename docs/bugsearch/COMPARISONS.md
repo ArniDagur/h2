@@ -112,10 +112,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Verdict:** F44+F45 complete the userinfo MUST for request convert paths.
 
 ### Final response vs interim 1xx API
-- **RFC 9110/9113:** 1xx does not end the message; final response uses a non-1xx status.
+- **RFC 9110/9113:** 1xx does not end the message; final response uses a non-1xx status; 1xx must precede the final status.
 - **Rust h2 (pre-F46):** `send_response(1xx, eos)` emitted illegal 1xx+EOS HEADERS and closed send half.
 - **Rust h2 (F46):** `send_response` rejects informational status; `send_informational` remains for interim 1xx.
-- **Verdict:** F46 prevents generating messages clients must reject (aligns with F33 receive path).
+- **Rust h2 (pre-F48):** `send_informational` after `send_response` still queued 1xx (docs claimed error).
+- **Rust h2 (F48):** reject when local half is past AwaitingHeaders.
+- **Verdict:** F46+F48 align generate path with interim-before-final semantics and documented API.
 
 ## Planned comparisons
 - Residual #848 API design.

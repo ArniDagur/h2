@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F47 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F48 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -46,6 +46,7 @@
 - `:authority` userinfo inbound → F44; outbound URI → F45.
 - `send_response` with 1xx → F46.
 - `send_response` 204/205/304 without end_stream → F47.
+- `send_informational` after final response → F48.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - TE not exactly `trailers`: already rejected in load_hpack (`value != "trailers"`).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
@@ -55,7 +56,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F47.
+1. Package PRs for F3–F48.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

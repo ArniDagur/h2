@@ -266,6 +266,12 @@
 - **Fix branch:** `fix/reject-send-no-content-without-end-stream`
 - **Change:** `StreamRef::send_response` rejects `status ∈ {204,205,304} && !end_of_stream`.
 
+### F48 — `send_informational` after final response still queued 1xx
+- **Severity:** Medium (protocol / API): RFC 9110 requires interim 1xx before the final status. `SendResponse::send_informational` docs already list "final response has already been sent" as an error, but `send_interim_informational_headers` never checked stream state — it always queued HEADERS (including after `send_response(..., true)` left the stream Closed).
+- **Evidence:** `send_response(200, true)` then `send_informational(100)` pre-fix returned Ok and would emit 1xx after final; post-fix `UserError::UnexpectedFrameType`. Existing 1xx-before-final tests still pass. Regression `send_informational_after_final_response_is_user_error`.
+- **Fix branch:** `fix/reject-informational-after-final`
+- **Change:** `State::is_send_informational_allowed` (Open/HalfClosedRemote with local AwaitingHeaders, or ReservedLocal); reject otherwise before queue.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

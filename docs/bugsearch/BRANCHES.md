@@ -51,6 +51,7 @@
 | `fix/reject-outbound-authority-userinfo` | F45 |
 | `fix/reject-send-response-informational` | F46 |
 | `fix/reject-send-no-content-without-end-stream` | F47 |
+| `fix/reject-informational-after-final` | F48 |
 
 ## experimental contains
-F1–F47, I1–I2, deadlock stress test, docs.
+F1–F48, I1–I2, deadlock stress test, docs.
