@@ -389,23 +389,35 @@ impl Send {
             return Poll::Ready(None);
         }
 
-        if !stream.send_capacity_inc {
-            stream.wait_send(cx);
-            return Poll::Pending;
-        }
-
-        stream.send_capacity_inc = false;
-
         let capacity = self.capacity(stream);
 
-        // If capacity has been reduced to zero, for example due to a race
-        // with a SETTINGS frame, return Pending instead of Ready(Ok(0)).
+        // Never return Ready(Ok(0)) (#898). A SETTINGS decrease can clear
+        // assigned capacity after `send_capacity_inc` was set.
         if capacity == 0 {
+            stream.send_capacity_inc = false;
             stream.wait_send(cx);
             return Poll::Pending;
         }
 
-        Poll::Ready(Some(Ok(capacity)))
+        if stream.send_capacity_inc {
+            stream.send_capacity_inc = false;
+            return Poll::Ready(Some(Ok(capacity)));
+        }
+
+        // Capacity is already assigned, but there was no fresh increase
+        // notification. That happens after SETTINGS_INITIAL_WINDOW_SIZE
+        // shrinks a stream's assignment: available stays > 0 while
+        // `send_capacity_inc` is false. If the reservation is fully
+        // assigned, return Ready so callers are not stranded. If more was
+        // requested, wait for the next assignment (connection or stream WU).
+        let assigned = stream.send_flow.available().as_size();
+        let requested = stream.requested_send_capacity;
+        if assigned >= requested {
+            return Poll::Ready(Some(Ok(capacity)));
+        }
+
+        stream.wait_send(cx);
+        Poll::Pending
     }
 
     /// Current available stream send capacity

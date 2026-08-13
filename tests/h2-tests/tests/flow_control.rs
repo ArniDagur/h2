@@ -1315,6 +1315,110 @@ async fn recv_settings_removes_available_capacity() {
     join(srv, h2).await;
 }
 
+/// When SETTINGS lowers INITIAL_WINDOW_SIZE, excess connection capacity
+/// assigned to stream A must be reclaimed and may wake stream B waiting on
+/// `poll_capacity`.
+#[tokio::test]
+async fn settings_decrease_reclaims_conn_capacity_to_waiting_stream() {
+    h2_support::trace_init!();
+    use std::time::Duration;
+
+    let (io, mut srv) = mock::new();
+    let (streams_ready_tx, streams_ready_rx) = oneshot::channel();
+    let (settings_done_tx, settings_done_rx) = oneshot::channel();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/a"))
+            .await;
+        srv.recv_frame(frames::headers(3).request("POST", "https://example.com/b"))
+            .await;
+
+        streams_ready_rx.await.unwrap();
+
+        // Shrink every stream window by a large amount so stream 1 must
+        // give back connection-level assignment.
+        srv.send_frame(frames::settings().initial_window_size(1_000))
+            .await;
+        srv.recv_frame(frames::settings_ack()).await;
+        settings_done_tx.send(()).unwrap();
+
+        // Stream B should be able to send after reclaim.
+        srv.recv_frame(frames::data(3, vec![0u8; 1_000]).eos())
+            .await;
+        srv.send_frame(frames::headers(3).response(204).eos()).await;
+
+        // Drain stream A (may send nothing further or only up to new window).
+        srv.send_frame(frames::headers(1).response(204).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let req = |path: &str| {
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("https://example.com/{path}"))
+                .body(())
+                .unwrap()
+        };
+
+        let (resp_a, mut stream_a) = client.send_request(req("a"), false).unwrap();
+        let (resp_b, mut stream_b) = client.send_request(req("b"), false).unwrap();
+
+        // Exhaust nearly all connection window on A (default conn window 65535).
+        stream_a.reserve_capacity(60_000);
+        let stream_a = util::wait_for_capacity(stream_a, 60_000).await;
+        assert!(stream_a.capacity() >= 60_000);
+
+        // B wants capacity but connection is almost gone.
+        stream_b.reserve_capacity(1_000);
+        // May get a little leftover connection capacity (< 1000).
+        let _ = poll_fn(|cx| stream_b.poll_capacity(cx)).await;
+
+        let _ = streams_ready_tx.send(());
+
+        // Wait for SETTINGS to be applied on the client.
+        settings_done_rx.await.unwrap();
+        // Yield so the connection task processes SETTINGS + ACK path.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        // After decrease, A should not keep more assigned capacity than the
+        // new stream window allows (and capacity() excludes buffered).
+        assert!(
+            stream_a.capacity() <= 1_000,
+            "stream A still holds too much capacity after SETTINGS decrease: {}",
+            stream_a.capacity()
+        );
+
+        // B must become able to send 1000 bytes (reclaimed connection capacity
+        // + stream window still allows it if it received the SETTINGS delta).
+        // Stream B's window after decrease: 65535 - (65535-1000) = 1000.
+        let mut stream_b = tokio::time::timeout(
+            Duration::from_secs(2),
+            util::wait_for_capacity(stream_b, 1_000),
+        )
+        .await
+        .expect("stream B did not get capacity after SETTINGS reclaim");
+
+        stream_b
+            .send_data(vec![0u8; 1_000].into(), true)
+            .expect("send_b");
+
+        let _ = resp_b.await;
+        drop(stream_a);
+        let _ = resp_a.await;
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn recv_settings_keeps_assigned_capacity() {
     h2_support::trace_init!();
