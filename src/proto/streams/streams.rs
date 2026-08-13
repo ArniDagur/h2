@@ -333,10 +333,13 @@ where
 
         // Validate / convert before `open()` so a UserError does not burn a
         // stream id (HTTP/2 allows id skips, but wasting ids is unnecessary).
+        // Connection-specific headers are checked here too — `send_headers`
+        // also validates, but that runs after open/insert.
         let is_head = *request.method() == Method::HEAD;
         let stream_id = me.actions.send.ensure_next_stream_id()?;
         let headers =
             client::Peer::convert_send_message(stream_id, request, protocol, end_of_stream)?;
+        Send::check_headers(headers.fields())?;
         let stream_id = me.actions.send.open()?;
         debug_assert_eq!(stream_id, headers.stream_id());
 

@@ -631,6 +631,53 @@ async fn request_with_authority_without_scheme_is_user_error() {
     join(srv, h2).await;
 }
 
+/// Connection-specific headers must not burn a stream id (F21 residual).
+/// Pre-fix: `check_headers` ran only in `send_headers` after `open()`.
+#[tokio::test]
+async fn connection_header_does_not_burn_stream_id() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        // First *successful* request must be stream 1 (not 3).
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.expect("handshake");
+
+        let bad = Request::builder()
+            .uri("https://example.com/")
+            .header("connection", "close")
+            .body(())
+            .unwrap();
+        client
+            .send_request(bad, true)
+            .expect_err("connection header must be UserError");
+
+        let good = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(good, true).expect("stream 1");
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        drop(client);
+        h2.await.expect("h2");
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn host_header_promoted_to_authority_and_stripped() {
     // #876 / RFC 9113 §8.3.1: never emit Host alongside :authority; when the
