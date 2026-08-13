@@ -3642,6 +3642,99 @@ async fn mismatched_content_length_headers_is_stream_error() {
     join(srv, client).await;
 }
 
+/// RFC 9110 §8.6: Content-Length = 1*DIGIT. Empty field value is not valid.
+/// Pre-fix parse_u64("") returned Ok(0).
+#[tokio::test]
+async fn empty_content_length_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        let mut fields = http::HeaderMap::new();
+        fields.insert(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from_static(""),
+        );
+        srv.send_frame(frames::headers(1).response(200).fields(fields))
+            .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let err = conn
+            .drive(resp)
+            .await
+            .expect_err("empty Content-Length must error");
+        assert!(err.is_reset(), "expected stream reset, got {}", err);
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+
+/// Empty Content-Length must not be generated on the wire either.
+#[tokio::test]
+async fn send_request_rejects_empty_content_length() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        // Follow-up after rejection still uses stream 1.
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        request
+            .headers_mut()
+            .insert(http::header::CONTENT_LENGTH, http::HeaderValue::from_static(""));
+        client
+            .send_request(request, false)
+            .expect_err("empty Content-Length must be UserError");
+
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        drop(client);
+        conn.await.expect("conn");
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn response_headers_with_request_pseudo_is_stream_error() {
     h2_support::trace_init!();

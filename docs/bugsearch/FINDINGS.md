@@ -356,6 +356,12 @@
 - **Fix branch:** `fix/require-authority-or-host`
 - **Change:** Server `convert_poll_message` requires `:authority` or Host; Host alone populates request URI authority.
 
+### F63 — Empty `Content-Length` field accepted as 0
+- **Severity:** Medium (protocol): RFC 9110 §8.6 `Content-Length = 1*DIGIT` requires at least one digit. `parse_u64("")` returned `Ok(0)`, so an empty CL header was treated as `Content-Length: 0` on recv and generatable on send.
+- **Evidence:** Response with empty CL → post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_request` with empty CL → `MalformedHeaders`. Units: `parse_u64_rejects_empty`. Regressions: `empty_content_length_is_stream_error`, `send_request_rejects_empty_content_length`.
+- **Fix branch:** `fix/reject-empty-content-length`
+- **Change:** `parse_u64` rejects empty input (covers recv, generate, trailers/push CL checks).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

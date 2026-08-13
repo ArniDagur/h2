@@ -327,6 +327,11 @@ impl fmt::Debug for Headers {
 pub struct ParseU64Error;
 
 pub fn parse_u64(src: &[u8]) -> Result<u64, ParseU64Error> {
+    // RFC 9110 §8.6 Content-Length = 1*DIGIT — empty is not a decimal value.
+    // Pre-fix, empty input returned Ok(0) and was treated as Content-Length: 0.
+    if src.is_empty() {
+        return Err(ParseU64Error);
+    }
     if src.len() > 19 {
         // At danger for overflow...
         return Err(ParseU64Error);
@@ -344,6 +349,23 @@ pub fn parse_u64(src: &[u8]) -> Result<u64, ParseU64Error> {
     }
 
     Ok(ret)
+}
+
+#[cfg(test)]
+mod parse_u64_tests {
+    use super::*;
+
+    #[test]
+    fn parse_u64_rejects_empty() {
+        assert_eq!(parse_u64(b""), Err(ParseU64Error));
+    }
+
+    #[test]
+    fn parse_u64_accepts_zero_and_digits() {
+        assert_eq!(parse_u64(b"0"), Ok(0));
+        assert_eq!(parse_u64(b"00"), Ok(0));
+        assert_eq!(parse_u64(b"42"), Ok(42));
+    }
 }
 
 // ===== impl PushPromise =====
