@@ -291,6 +291,14 @@ impl Send {
         stream.state.set_scheduled_reset(reason);
 
         self.prioritize.reclaim_reserved_capacity(stream, counts);
+        // pending_open streams are not send-ready; still wake the connection so
+        // `buffer_pending` can abort them (never opened on the wire).
+        if stream.is_pending_open {
+            if let Some(task) = task.take() {
+                task.wake();
+            }
+            return;
+        }
         self.prioritize.schedule_send(stream, task);
     }
 

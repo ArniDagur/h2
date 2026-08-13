@@ -1686,10 +1686,15 @@ fn maybe_cancel(stream: &mut store::Ptr, actions: &mut Actions, counts: &mut Cou
             Reason::CANCEL
         };
 
+        // Never-sent pending_open streams are aborted locally (no wire frames);
+        // skip reset-expiration bookkeeping for those.
+        let pending_open = stream.is_pending_open;
         actions
             .send
             .schedule_implicit_reset(stream, reason, counts, &mut actions.task);
-        actions.recv.enqueue_reset_expiration(stream, counts);
+        if !pending_open {
+            actions.recv.enqueue_reset_expiration(stream, counts);
+        }
     }
 }
 

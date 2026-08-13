@@ -2345,3 +2345,70 @@ async fn frame_on_pending_open_stream_is_conn_error() {
         join(srv, client).await;
     }
 }
+
+/// Dropping a stream stuck in `pending_open` because the peer advertised
+/// `MAX_CONCURRENT_STREAMS = 0` must free the stream without hanging.
+///
+/// The stream was never opened on the wire, so no HEADERS/RST should be sent
+/// (RST on idle is PROTOCOL_ERROR). Pre-fix, cancelled pending_open streams
+/// waited for `can_inc_num_send_streams()` and leaked forever when max=0.
+#[tokio::test]
+async fn drop_pending_open_with_max_concurrent_streams_zero() {
+    use std::time::Duration;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(0))
+            .await;
+        assert_default_settings!(settings);
+
+        // No stream frames: the cancelled pending_open request must be
+        // discarded locally. Connection may send GOAWAY then EOF.
+        let frame = tokio::time::timeout(Duration::from_secs(2), srv.next())
+            .await
+            .expect("connection did not close (pending_open leak?)");
+        match frame {
+            None => {}
+            Some(Ok(frame::Frame::GoAway(_))) => {
+                srv.recv_eof().await;
+            }
+            other => panic!("unexpected frame after cancelled pending_open: {:?}", other),
+        }
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        let conn = tokio::spawn(async move { conn.await });
+
+        // Wait until peer SETTINGS (max=0) is applied.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max_concurrent_streams=0");
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        // max=0 → stream is queued in pending_open and never opens.
+        let (resp, send_stream) = client.send_request(request, true).unwrap();
+        drop(resp);
+        drop(send_stream);
+        drop(client);
+
+        tokio::time::timeout(Duration::from_secs(2), conn)
+            .await
+            .expect("client connection hung with leaked pending_open")
+            .expect("join conn task")
+            .expect("client connection error");
+    };
+
+    join(srv, client).await;
+}

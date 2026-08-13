@@ -564,6 +564,13 @@ impl Prioritize {
                 return Ok(BufferStatus::CodecFull);
             }
 
+            // Drop cancelled / reset streams that never left pending_open.
+            // They were never opened on the wire, so HEADERS+RST must not be
+            // sent (RST on idle is PROTOCOL_ERROR). They also must not wait
+            // for a concurrency slot: with MAX_CONCURRENT_STREAMS=0 they would
+            // leak forever.
+            while self.abort_closed_pending_open(buffer, store, counts) {}
+
             if let Some(mut stream) = self.pop_pending_open(store, counts) {
                 self.pending_send.push_front(&mut stream);
                 self.try_assign_capacity(&mut stream);
@@ -977,6 +984,45 @@ impl Prioritize {
         }
 
         None
+    }
+
+    /// Remove an implicitly-cancelled stream from the head of `pending_open`.
+    ///
+    /// Implicit cancel (`ScheduledLibraryReset`) means the user dropped all
+    /// handles before the stream was ever written. Emitting HEADERS+RST would
+    /// require a concurrency slot and is unnecessary (peer never saw the
+    /// stream). Explicit `send_reset` keeps HEADERS+RST queued instead.
+    ///
+    /// Returns true if a stream was aborted (caller may loop).
+    fn abort_closed_pending_open<B>(
+        &mut self,
+        buffer: &mut Buffer<Frame<B>>,
+        store: &mut Store,
+        counts: &mut Counts,
+    ) -> bool {
+        let Some(mut stream) = self
+            .pending_open
+            .pop_if(store, |s| s.state.is_scheduled_reset())
+        else {
+            return false;
+        };
+
+        tracing::trace!(
+            "abort_closed_pending_open; stream={:?}; state={:?}",
+            stream.id,
+            stream.state
+        );
+
+        counts.dec_num_pending_open();
+        // Never opened on the wire: discard buffered HEADERS and release.
+        self.clear_queue(buffer, &mut stream);
+        self.reclaim_all_capacity(&mut stream, counts);
+        if let Some(reason) = stream.state.get_scheduled_reset() {
+            stream.set_reset(reason, Initiator::Library);
+        }
+        let is_pending_reset = stream.is_pending_reset_expiration();
+        counts.transition_after(stream, is_pending_reset);
+        true
     }
 }
 
