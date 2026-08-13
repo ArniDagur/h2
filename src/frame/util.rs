@@ -3,6 +3,37 @@ use std::fmt;
 use super::Error;
 use bytes::{Buf, Bytes};
 
+/// RFC 3986 §3.1 scheme: `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`.
+///
+/// `http::uri::Scheme` is more permissive (empty and digit-leading tokens).
+/// nghttp2 uses the same grammar in `check_scheme`.
+pub(crate) fn is_valid_scheme(s: &str) -> bool {
+    let mut bytes = s.as_bytes().iter().copied();
+    match bytes.next() {
+        Some(b) if b.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scheme_grammar() {
+        assert!(is_valid_scheme("http"));
+        assert!(is_valid_scheme("https"));
+        assert!(is_valid_scheme("HTTP"));
+        assert!(is_valid_scheme("a"));
+        assert!(is_valid_scheme("a+b-c.1"));
+        assert!(!is_valid_scheme(""));
+        assert!(!is_valid_scheme("1http"));
+        assert!(!is_valid_scheme("+http"));
+        assert!(!is_valid_scheme("ht!tp"));
+    }
+}
+
 /// Strip padding from the given payload.
 ///
 /// It is assumed that the frame had the padded flag set. This means that the

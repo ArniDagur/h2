@@ -137,7 +137,7 @@
 
 use crate::codec::{Codec, SendError, UserError};
 use crate::ext::Protocol;
-use crate::frame::{Headers, Pseudo, Reason, Settings, StreamId};
+use crate::frame::{self, Headers, Pseudo, Reason, Settings, StreamId};
 use crate::proto::{self, Error};
 use crate::{FlowControl, PingPong, RecvStream, SendStream};
 
@@ -1652,22 +1652,25 @@ impl Peer {
             }
         }
 
-        // Non-CONNECT requests need a non-empty `:scheme` (RFC 9113 §8.3.1 /
-        // RFC 3986 §3.1). Empty string is not a valid scheme; http::Uri can
-        // still carry scheme="" (e.g. "://host/") and would otherwise go on
-        // the wire.
-        let scheme_missing_or_empty = match pseudo.scheme.as_ref() {
+        // Non-CONNECT requests need a valid `:scheme` token (RFC 9113 §8.3.1 /
+        // RFC 3986 §3.1). http::Uri can carry empty or digit-leading schemes
+        // that are not valid URI scheme tokens.
+        let scheme_missing_or_invalid = match pseudo.scheme.as_ref() {
             None => true,
-            Some(s) => s.is_empty(),
+            Some(s) => !frame::is_valid_scheme(s.as_str()),
         };
-        if !is_connect && scheme_missing_or_empty {
+        if !is_connect && scheme_missing_or_invalid {
             // HTTP/2-version requests: fail if the URI (and Host promotion)
             // did not supply a real scheme — covers relative paths, authority-
-            // only forms like `example.com:8080`, and empty scheme.
+            // only forms like `example.com:8080`, empty scheme, and invalid
+            // scheme tokens (e.g. digit-leading).
             //
             // HTTP/1.x-version requests: default to `http` so intermediaries
             // can forward relative URIs or Host-only forms over HTTP/2.
-            if version == Version::HTTP_2 {
+            // Only fill in when scheme is *absent*; invalid present tokens
+            // are still rejected for HTTP/1.x-version to avoid putting junk
+            // on the wire.
+            if version == Version::HTTP_2 || pseudo.scheme.is_some() {
                 return Err(UserError::MissingUriSchemeAndAuthority.into());
             }
             pseudo.set_scheme(uri::Scheme::HTTP);

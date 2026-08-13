@@ -64,6 +64,7 @@
 | `fix/requested-capacity-floor-after-send` | F58 |
 | `fix/reject-empty-scheme` | F59 |
 | `fix/reject-asterisk-path-non-options` | F60 |
+| `fix/reject-invalid-scheme-token` | F61 |
 
 ## experimental contains
-F1–F60, I1–I2, deadlock stress test, docs.
+F1–F61, I1–I2, deadlock stress test, docs.

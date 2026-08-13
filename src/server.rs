@@ -1626,10 +1626,12 @@ impl Peer {
         }
 
         // Pushed requests are never CONNECT; `:scheme` is required and must be
-        // non-empty (RFC 9113 §8.3.1 / RFC 3986 §3.1).
+        // a valid scheme token (RFC 9113 §8.3.1 / RFC 3986 §3.1).
         match pseudo.scheme.as_ref() {
             None => return Err(UserError::MissingUriSchemeAndAuthority),
-            Some(s) if s.is_empty() => return Err(UserError::MissingUriSchemeAndAuthority),
+            Some(s) if !frame::is_valid_scheme(s.as_str()) => {
+                return Err(UserError::MissingUriSchemeAndAuthority);
+            }
             _ => {}
         }
 
@@ -1755,10 +1757,10 @@ impl proto::Peer for Peer {
             if is_connect && !has_protocol {
                 malformed!("malformed headers: :scheme in CONNECT");
             }
-            // RFC 3986 §3.1: scheme is ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
-            // Empty is not a valid scheme; http::uri::Scheme still parses "" as Ok.
-            if scheme.is_empty() {
-                malformed!("malformed headers: empty scheme");
+            // RFC 3986 §3.1 / nghttp2 check_scheme: ALPHA *( ALPHA / DIGIT / "+" /
+            // "-" / "." ). http::uri::Scheme accepts empty and digit-leading tokens.
+            if !frame::is_valid_scheme(scheme.as_str()) {
+                malformed!("malformed headers: invalid scheme ({:?})", scheme);
             }
             let maybe_scheme = scheme.parse();
             let scheme = maybe_scheme.or_else(|why| {

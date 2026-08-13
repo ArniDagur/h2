@@ -1,19 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F60 @ `efc9ff5`)
+**Branch tip:** `experimental/bugsearch` (F61 pending merge)
 
 ## Current focus
-F60: non-OPTIONS `:path` = `*` (asterisk-form).
+F61: invalid `:scheme` tokens (digit-leading / non-RFC 3986).
 
 ## Last actions
-1. Confirmed **F60**: asterisk-form is OPTIONS-only (RFC 9110 §7.1); nghttp2 enforces same for http/https. h2 accepted GET `*` via PathAndQuery.
-2. Fix: reject `*` path unless OPTIONS on server recv, client send, and push convert.
-3. Regressions: `reject_asterisk_path_for_non_options`, `request_asterisk_path_non_options_is_user_error`.
-4. Note: `:path` starting with `//` accepted by nghttp2 (starts with `/`) → not fix-worthy vs reference.
+1. Confirmed **F61**: RFC 3986 / nghttp2 require scheme to start with ALPHA; `http::uri::Scheme` accepts `"1http"` etc. F59 only covered empty.
+2. Fix: `frame::is_valid_scheme` + enforce on server recv, client send, push convert.
+3. Regression: `reject_request_digit_leading_scheme`; unit `scheme_grammar`.
 
 ## Next recommended step
-1. Package PRs for F3–F60.
+1. Package PRs for F3–F61.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 

@@ -344,6 +344,12 @@
 - **Fix branch:** `fix/reject-asterisk-path-non-options`
 - **Change:** Server recv + client send + push convert reject `path == "*"` unless method is OPTIONS.
 
+### F61 — Invalid scheme tokens (empty / non-ALPHA start) accepted
+- **Severity:** Medium (protocol): RFC 3986 §3.1 scheme grammar is `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`. nghttp2 `check_scheme` enforces the same. F59 only rejected empty; `http::uri::Scheme` still accepts digit-leading tokens like `"1http"`, which h2 treated as a valid present scheme.
+- **Evidence:** Peer `:scheme: 1http` → post-fix `RST_STREAM(PROTOCOL_ERROR)`; empty scheme still rejected. Unit `scheme_grammar`. Regression `reject_request_digit_leading_scheme`.
+- **Fix branch:** `fix/reject-invalid-scheme-token`
+- **Change:** `frame::is_valid_scheme` (RFC 3986 grammar); used on server recv, client send, and push convert.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

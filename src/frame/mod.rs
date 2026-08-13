@@ -48,6 +48,8 @@ mod stream_id;
 mod util;
 mod window_update;
 
+pub(crate) use self::util::is_valid_scheme;
+
 pub use self::data::Data;
 pub use self::go_away::GoAway;
 pub use self::head::{Head, Kind};

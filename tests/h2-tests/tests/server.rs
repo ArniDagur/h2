@@ -2514,6 +2514,58 @@ async fn reject_asterisk_path_for_non_options() {
     join(client, srv).await;
 }
 
+/// RFC 3986 §3.1 / nghttp2: scheme must start with ALPHA (not a digit).
+/// `http::uri::Scheme` accepts `"1http"`.
+#[tokio::test]
+async fn reject_request_digit_leading_scheme() {
+    h2_support::trace_init!();
+
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+
+        client
+            .send_frame(
+                frames::headers(1)
+                    .pseudo(frame::Pseudo {
+                        method: Method::GET.into(),
+                        scheme: util::byte_str("1http").into(),
+                        authority: util::byte_str("example.com").into(),
+                        path: util::byte_str("/").into(),
+                        ..Default::default()
+                    })
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(3).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().path(), "/");
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 3986 §3.1 / RFC 9113 §8.3.1: `:scheme` must be a non-empty scheme token.
 /// `http::uri::Scheme` accepts `""`, so empty was previously treated as present.
 #[tokio::test]
