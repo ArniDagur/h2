@@ -273,6 +273,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F83):** enable applied when SETTINGS is written. ACK still sets the flag (idempotent).
 - **Verdict:** F83 is an h2-local race fix, same class as F10/F82.
 
+### Malformed header fields spanning CONTINUATION
+- **RFC 9113 §4.3 / §8.2:** a header block is HEADERS plus any CONTINUATION; HPACK is connection state. Stream-level malformed fields (`Connection`, illegal `TE`, leading/trailing SP/HTAB) are stream PROTOCOL_ERROR, but the decoder must finish the block.
+- **Rust h2 (pre-F84):** `malformed` was a local in `HeaderBlock::load` and was discarded on `NeedMore`. A `Connection` field in the first 16KiB followed by a split large field was accepted. If decode finished the first frame, RST dropped `Partial` and the next CONTINUATION was GOAWAY PROTOCOL_ERROR.
+- **Rust h2 (F84):** persist `is_malformed`; continue the block until END_HEADERS, then RST.
+- **Verdict:** h2-local HPACK-sync / acceptance bug (not a Go mismatch).
+
 ### Graceful GOAWAY + 1-RTT PING
 - **Go:** after initial GOAWAY, `goAwayTimeout` (~1s) then close if not idle.
 - **Rust h2:** wait indefinitely for shutdown-PING ACK before the second GOAWAY; `abrupt_shutdown` closes now.

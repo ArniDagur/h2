@@ -87,6 +87,7 @@
 | `fix/drop-send-without-eos-resets` | F81 |
 | `fix/local-header-table-increase-before-ack` | F82 |
 | `fix/local-extended-connect-enable-before-ack` | F83 |
+| `fix/malformed-headers-continuation-hpack` | F84 |
 
 ## experimental contains
-F1–F83, I1–I2, deadlock stress test, docs.
+F1–F84, I1–I2, deadlock stress test, docs.

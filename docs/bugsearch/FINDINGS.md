@@ -484,6 +484,15 @@
 - **Fix branch:** `fix/local-extended-connect-enable-before-ack`
 - **Change:** When writing local SETTINGS with ENABLE_CONNECT_PROTOCOL=1, set Recv flag immediately. ACK path remains (idempotent).
 
+### F84 — Malformed header in a CONTINUATION-spanning block desyncs HPACK / is accepted
+- **Severity:** Medium (connection-kill / protocol): RFC 9113 §4.3 requires the HPACK decoder to process the entire header block (HEADERS + CONTINUATION) so connection state stays in sync. Stream-level malformed fields (`Connection`, illegal `TE`, leading/trailing WS, …) set a local `malformed` flag, but `HeaderBlock::load` dropped it on `NeedMore` and `framed_read` RST'd on `MalformedMessage` before `END_HEADERS`.
+- **Evidence:**
+  - Typical split: first 16KiB frame fully decodes `connection: close` then `NeedMore` on a large following field. Pre-fix the flag was lost → request **accepted**. Unit: `malformed_connection_header_persists_across_need_more`.
+  - If the first frame finished decode (`MalformedMessage` without END_HEADERS), RST dropped `Partial` → next CONTINUATION was unexpected → GOAWAY PROTOCOL_ERROR.
+  - Post-fix: `RST_STREAM(PROTOCOL_ERROR)` after the block completes; a follow-up request on stream 3 succeeds. Regression: `recv_connection_header_spanning_continuation_is_stream_error`.
+- **Fix branch:** `fix/malformed-headers-continuation-hpack`
+- **Change:** Persist `HeaderBlock::is_malformed` across chunks (including `NeedMore`). `framed_read` keeps feeding CONTINUATION until END_HEADERS, then RST.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
