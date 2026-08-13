@@ -254,6 +254,12 @@
 - **Fix branch:** `fix/reject-outbound-authority-userinfo`
 - **Change:** After Host promotion, reject `@` in `:authority` in client `convert_send_message` and server `convert_push_message`.
 
+### F46 — `send_response` accepted informational (1xx) status
+- **Severity:** Medium (protocol / API): Final `send_response` is for the complete response. Passing a 1xx status (especially with `end_of_stream=true`) generates HEADERS that violate RFC 9110/9113 (1xx must not end the message; clients RST via F33) and closes the server send half so a real final status cannot follow. `send_informational` exists for interim 1xx.
+- **Evidence:** Server `send_response(100, true)` pre-fix queued HEADERS+EOS; post-fix `UserError::UnexpectedFrameType`, then normal 200 still works. Regression `send_response_rejects_informational_status`. Existing `send_informational` path unchanged.
+- **Fix branch:** `fix/reject-send-response-informational`
+- **Change:** `StreamRef::send_response` rejects `status.is_informational()` before convert/send.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

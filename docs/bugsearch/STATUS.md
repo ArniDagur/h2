@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F45: outbound URI userinfo generated as `:authority` on the wire.
+F46: `send_response` accepted 1xx status (emitted 1xx+EOS on the wire).
 
 ## Last actions
-1. Confirmed **F45**: `send_request(https://user:pass@example.com/)` queued HEADERS with userinfo in `:authority`.
-2. Fix: reject `@` in `:authority` after Host promotion in client `convert_send_message` and server `convert_push_message`.
-3. Regression: `outbound_uri_userinfo_is_user_error` (F44 inbound already fixed).
+1. Confirmed **F46**: `send_response(100, end_stream=true)` queued HEADERS with END_STREAM (malformed per F33/RFC).
+2. Fix: reject informational status on `StreamRef::send_response` → `UserError::UnexpectedFrameType`; use `send_informational` for 1xx.
+3. Regression: `send_response_rejects_informational_status`.
 
 ## Next recommended step
-1. Package PRs for F3–F45.
+1. Package PRs for F3–F46.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 

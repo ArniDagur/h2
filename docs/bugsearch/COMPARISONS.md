@@ -109,5 +109,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F45):** outbound after Host promotion, `@` in `:authority` → `MalformedHeaders` (client send + push convert).
 - **Verdict:** F44+F45 complete the userinfo MUST for request convert paths.
 
+### Final response vs interim 1xx API
+- **RFC 9110/9113:** 1xx does not end the message; final response uses a non-1xx status.
+- **Rust h2 (pre-F46):** `send_response(1xx, eos)` emitted illegal 1xx+EOS HEADERS and closed send half.
+- **Rust h2 (F46):** `send_response` rejects informational status; `send_informational` remains for interim 1xx.
+- **Verdict:** F46 prevents generating messages clients must reject (aligns with F33 receive path).
+
 ## Planned comparisons
 - Residual #848 API design.
