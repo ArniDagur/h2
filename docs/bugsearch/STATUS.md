@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F67 @ `9390e87`)
+**Branch tip:** `experimental/bugsearch` (F68 @ `9dfb450`)
 
 ## Current focus
-F67: header field values with leading/trailing SP/HTAB.
+F68: non-zero Content-Length on 204 responses.
 
 ## Last actions
-1. Confirmed **F67**: RFC 9113 §8.2.1 requires discard or reject of field values with leading/trailing SP/HTAB; `http::HeaderValue` accepts them; nghttp2 rejects.
-2. Fix: reject on HPACK load (stream PROTOCOL_ERROR) and on generate (`Send::check_headers` → UserError).
-3. Regressions: `recv_header_value_leading_trailing_ws_is_stream_error`, `send_request_rejects_header_value_leading_trailing_ws`.
+1. Confirmed **F68**: RFC 9110 §8.6 forbids CL on 204; nghttp2 rejects non-zero (allows CL:0). Pre-fix END_STREAM non-zero CL exception included 204 (for 304 only).
+2. Fix: reject non-zero CL on 204 before `recv_open` (RST still sent after request EOS); EOS exception is 304-only.
+3. Regressions: `no_content_nonzero_content_length_is_stream_error`, `no_content_zero_content_length_and_304_cl_accepted`.
 
 ## Next recommended step
-1. Package PRs for F3–F67.
+1. Package PRs for F3–F68.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (e.g. empty IPv6 `[]` authority residual of F66).
+3. Further FC/wakeup / protocol hunt (empty IPv6 `[]` authority residual of F66).
 
 ## Blockers
 None.

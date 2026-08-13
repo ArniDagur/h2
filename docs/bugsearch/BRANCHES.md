@@ -71,6 +71,7 @@
 | `fix/try-assign-saturating-sub` | F65 |
 | `fix/reject-empty-authority-host` | F66 |
 | `fix/reject-header-value-leading-trailing-ws` | F67 |
+| `fix/reject-nonzero-cl-on-204` | F68 |
 
 ## experimental contains
-F1–F67, I1–I2, deadlock stress test, docs.
+F1–F68, I1–I2, deadlock stress test, docs.

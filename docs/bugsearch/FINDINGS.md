@@ -386,6 +386,12 @@
 - **Fix branch:** `fix/reject-header-value-leading-trailing-ws`
 - **Change:** `frame::header_value_has_leading_trailing_ws`; reject in HPACK load (malformed) and `Send::check_headers` (UserError).
 
+### F68 — Non-zero Content-Length on 204 responses accepted
+- **Severity:** Medium (protocol): RFC 9110 §8.6 forbids Content-Length on 204. nghttp2 rejects non-zero CL (tolerates CL:0, strips it). Pre-fix, the END_STREAM + non-zero CL exception treated 204 like 304, so `204` + `Content-Length: 5` + END_STREAM was accepted.
+- **Evidence:** Peer 204 with CL:5 → post-fix `RST_STREAM(PROTOCOL_ERROR)`. CL:0 on 204 and non-zero CL on 304 still accepted. Regressions: `no_content_nonzero_content_length_is_stream_error`, `no_content_zero_content_length_and_304_cl_accepted`.
+- **Fix branch:** `fix/reject-nonzero-cl-on-204`
+- **Change:** Reject non-zero CL on 204 before `recv_open` (so RST still emits after request EOS); EOS non-zero CL exception is 304-only.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

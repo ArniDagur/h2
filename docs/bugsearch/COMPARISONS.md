@@ -106,6 +106,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **http::HeaderValue:** accepts and preserves leading/trailing SP/HTAB.
 - **Rust h2 (pre-F67):** passed values through to applications; generatable.
 - **Rust h2 (F67):** reject (PROTOCOL_ERROR on recv; UserError on generate) — matches nghttp2/RFC reject option.
+
+### Content-Length on 204 responses
+- **RFC 9110 §8.6:** server MUST NOT send Content-Length on 204.
+- **nghttp2:** non-zero CL on 204 → HTTP_HEADER error; CL:0 stripped and ignored (interop with broken servers).
+- **Rust h2 outbound (F49):** rejects any Content-Length on 204 generate.
+- **Rust h2 recv (pre-F68):** END_STREAM + non-zero CL exception included 204 (same as 304) → accepted CL:5.
+- **Rust h2 recv (F68):** non-zero CL on 204 → stream PROTOCOL_ERROR before recv_open; CL:0 tolerated; 304 non-zero CL still allowed.
 - **Verdict:** F66 closes empty-host hole left by userinfo-only checks (F44/F45).
 
 ### Asterisk-form `:path`
