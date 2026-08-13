@@ -590,9 +590,12 @@ impl Send {
                             stream.send_flow
                         );
 
-                        // TODO: Should this notify the producer when the capacity
-                        // of a stream is reduced? Maybe it should if the capacity
-                        // is reduced to zero, allowing the producer to stop work.
+                        // Wake capacity waiters so they observe the reduced
+                        // assignment (or zero). Without this, `poll_capacity`
+                        // can stay parked until an unrelated increase.
+                        if reclaimed > 0 {
+                            stream.notify_capacity();
+                        }
 
                         Ok::<_, proto::Error>(())
                     })?;

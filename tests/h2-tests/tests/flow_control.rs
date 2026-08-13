@@ -1268,6 +1268,97 @@ async fn connection_notified_on_released_capacity() {
     drop(b);
 }
 
+
+/// SETTINGS decrease that reclaims assigned capacity must wake `poll_capacity`
+/// so the producer observes the new (lower) assignment without waiting for an
+/// unrelated window increase.
+#[tokio::test]
+async fn settings_decrease_wakes_poll_capacity_on_reclaim() {
+    h2_support::trace_init!();
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    let (io, mut srv) = mock::new();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        ready_rx.await.unwrap();
+        srv.send_frame(frames::settings().initial_window_size(1_000))
+            .await;
+        srv.recv_frame(frames::settings_ack()).await;
+        idle_ms(200).await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (_resp, mut stream) = client.send_request(request, false).unwrap();
+
+        stream.reserve_capacity(65_000);
+        let mut stream = util::wait_for_capacity(stream, 65_000).await;
+        assert!(stream.capacity() >= 65_000);
+
+        stream.reserve_capacity(70_000);
+        // Drain Ready notifications until Pending.
+        loop {
+            let mut once = poll_fn(|cx| stream.poll_capacity(cx));
+            match poll_fn(|cx| {
+                use std::task::Poll;
+                match Pin::new(&mut once).poll(cx) {
+                    Poll::Ready(v) => Poll::Ready(Some(v)),
+                    Poll::Pending => Poll::Ready(None),
+                }
+            })
+            .await
+            {
+                None => break,
+                Some(Some(Ok(n))) if n > 0 => continue,
+                Some(other) => panic!("unexpected capacity poll: {:?}", other),
+            }
+        }
+
+        let mut pending = poll_fn(|cx| stream.poll_capacity(cx)).wakened();
+        assert!(
+            poll_fn(|cx| {
+                use std::task::Poll;
+                match Pin::new(&mut pending).poll(cx) {
+                    Poll::Pending => Poll::Ready(true),
+                    Poll::Ready(_) => Poll::Ready(false),
+                }
+            })
+            .await,
+            "expected poll_capacity to park while waiting for more capacity"
+        );
+
+        let _ = ready_tx.send(());
+
+        let got = tokio::time::timeout(Duration::from_secs(2), pending)
+            .await
+            .expect("poll_capacity not woken after SETTINGS reclaim");
+        let n = got.expect("stream closed").expect("capacity error");
+        assert!(
+            n <= 1_000,
+            "capacity after reclaim should be <= 1000, got {}",
+            n
+        );
+        assert!(stream.capacity() <= 1_000);
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn recv_settings_removes_available_capacity() {
     h2_support::trace_init!();

@@ -97,13 +97,25 @@ impl FlowControl {
             return None;
         }
 
-        let unclaimed = available.0 - self.window_size.0;
-        let threshold = self.window_size.0 / UNCLAIMED_DENOMINATOR * UNCLAIMED_NUMERATOR;
+        // When `window_size` is negative (SETTINGS decrease), the difference can
+        // be large; use checked math and never advertise more than MAX.
+        let unclaimed = available.0.checked_sub(self.window_size.0)?;
+        if unclaimed <= 0 {
+            return None;
+        }
+
+        // With a negative peer window, any positive unclaimed amount should be
+        // advertised (threshold would be negative and is not meaningful).
+        let threshold = if self.window_size.0 <= 0 {
+            0
+        } else {
+            self.window_size.0 / UNCLAIMED_DENOMINATOR * UNCLAIMED_NUMERATOR
+        };
 
         if unclaimed < threshold {
             None
         } else {
-            Some(unclaimed as WindowSize)
+            Some((unclaimed as WindowSize).min(MAX_WINDOW_SIZE))
         }
     }
 
@@ -265,5 +277,49 @@ impl fmt::Display for Window {
 impl From<Window> for isize {
     fn from(w: Window) -> isize {
         w.0 as isize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fc(window: i32, available: i32) -> FlowControl {
+        FlowControl {
+            window_size: Window(window),
+            available: Window(available),
+        }
+    }
+
+    #[test]
+    fn unclaimed_none_when_balanced() {
+        assert_eq!(fc(100, 100).unclaimed_capacity(), None);
+        assert_eq!(fc(0, 0).unclaimed_capacity(), None);
+        assert_eq!(fc(-50, -50).unclaimed_capacity(), None);
+    }
+
+    #[test]
+    fn unclaimed_respects_half_window_threshold() {
+        assert_eq!(fc(100, 149).unclaimed_capacity(), None);
+        assert_eq!(fc(100, 150).unclaimed_capacity(), Some(50));
+    }
+
+    #[test]
+    fn unclaimed_with_zero_or_negative_window_advertises_immediately() {
+        assert_eq!(fc(0, 50).unclaimed_capacity(), Some(50));
+        assert_eq!(fc(-100, 0).unclaimed_capacity(), Some(100));
+        assert_eq!(fc(-100, -40).unclaimed_capacity(), Some(60));
+        assert_eq!(fc(-1, 0).unclaimed_capacity(), Some(1));
+    }
+
+    #[test]
+    fn unclaimed_checked_sub_overflow_returns_none() {
+        assert_eq!(fc(i32::MIN, i32::MAX).unclaimed_capacity(), None);
+    }
+
+    #[test]
+    fn dec_send_window_underflow_is_flow_control_error() {
+        let mut f = fc(i32::MIN + 10, 0);
+        assert!(f.dec_send_window(11).is_err());
     }
 }
