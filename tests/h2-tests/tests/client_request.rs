@@ -2477,6 +2477,60 @@ async fn server_enable_push_one_is_connection_error() {
     join(srv, h2).await;
 }
 
+/// Empty :protocol is not a valid ALPN token (RFC 8441 / nghttp2).
+#[tokio::test]
+async fn send_request_rejects_empty_protocol() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().enable_connect_protocol(1))
+            .await;
+        assert_default_settings!(settings);
+        // Only a valid request should open a stream.
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.unwrap();
+
+        let bad = Request::connect("http://example.com/")
+            .extension(Protocol::from_static(""))
+            .body(())
+            .unwrap();
+        client
+            .send_request(bad, true)
+            .expect_err("empty protocol must be UserError");
+
+        let bad = Request::connect("http://example.com/")
+            .extension(Protocol::from_static(" websocket"))
+            .body(())
+            .unwrap();
+        client
+            .send_request(bad, true)
+            .expect_err("whitespace protocol must be UserError");
+
+        let good = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(good, true).expect("stream 1");
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        drop(client);
+        h2.await.expect("h2");
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn extended_connect_request() {
     h2_support::trace_init!();
