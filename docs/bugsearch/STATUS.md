@@ -1,19 +1,19 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F80)
+**Branch tip:** `experimental/bugsearch` (F81)
 
 ## Current focus
-F80: RecvStream drop after poll_data releases leftover in_flight capacity.
+F81: last SendStream drop without EOS sends RST even if recv handles live.
 
 ## Last actions
-1. Confirmed **F80**: `poll_data` charges `in_flight`; drop without `release_capacity` left it assigned while `SendStream` kept the stream alive.
-2. Connection WINDOW_UPDATE never sent; peer send window stalled.
-3. Fix: `clear_recv_buffer` releases remaining `in_flight_recv_data` after draining the queue.
-4. Regression: `drop_recv_stream_after_read_releases_unreleased_capacity`.
+1. Confirmed **F81**: docs promise RST on `SendStream` drop without closing send; cancel waited for `ref_count == 0`.
+2. Holding `ResponseFuture` after drop left send half open — peer waits, client hangs.
+3. Fix: last `send_ref` drop with send half open → `schedule_implicit_reset(CANCEL)`.
+4. Regression: `drop_send_stream_without_eos_resets_despite_response_future`. F77/F78 still pass.
 
 ## Next recommended step
-1. Package PRs for F3–F80.
+1. Package PRs for F3–F81.
 2. Residual #848 API ready-at-max-open.
 3. Optional test hygiene: S4 stale tests + F29 drain loop.
 

@@ -22,6 +22,7 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 
 ### Receiver drops interest mid-stream
 - **Rust h2:** `RecvStream` drop does not RST (may still send on `SendStream`); F14 restores stream+conn FC for unread buffered DATA. F80 also releases `in_flight` taken by `poll_data` but never `release_capacity` (FlowControl dies with RecvStream). Full ref drop → implicit CANCEL (or server NO_ERROR after complete response).
+- **Rust h2 (F81):** last `SendStream` drop with send half still open RSTs (CANCEL) even if recv handles live — matches `SendStream` docs and avoids a hung request body / `ResponseFuture`.
 - **Planned:** further compare NO_ERROR vs CANCEL timing to Go/nghttp2 if new reports appear.
 
 ### Go #80035 — SETTINGS_INITIAL_WINDOW_SIZE overflow on existing streams

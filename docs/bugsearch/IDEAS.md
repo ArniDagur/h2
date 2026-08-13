@@ -79,6 +79,7 @@
 - SendResponse after send_response still counted as send handle → F78.
 - DATA on pending_open treated as STREAM_CLOSED (F23 over-broad) → F79.
 - RecvStream drop after poll_data leaked unreleased in_flight (SendStream held) → F80.
+- SendStream drop without EOS did not RST while ResponseFuture lived → F81.
 - Pre-existing test failures (`recv_too_big_headers`, `srv_window_update_on_lower_stream_id`, `recv_invalid_push_promise_headers_is_stream_protocol_error`): stale after F74/F36/F32, not new library bugs.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
@@ -88,7 +89,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F80.
+1. Package PRs for F3–F81.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

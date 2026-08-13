@@ -465,6 +465,12 @@
 - **Fix branch:** `fix/recv-drop-releases-read-unreleased-capacity`
 - **Change:** `clear_recv_buffer` drains the queue then `release_capacity` of remaining `in_flight_recv_data`. `release_closed_capacity` zeros in_flight first (no double release).
 
+### F81 — Drop `SendStream` without EOS does not RST while recv handles live
+- **Severity:** Medium (cancel / hang): `SendStream` docs say dropping without closing send emits `RST_STREAM` and cancels the exchange. Cancel only ran at `ref_count == 0`. `ResponseFuture` / `RecvStream` keep `ref_count > 0`, so dropping only `SendStream` left the send half open: peer waits for a body, client `ResponseFuture` hangs.
+- **Evidence:** `send_request(..., false)`, drop `SendStream`, hold `ResponseFuture`: pre-fix 2s timeout (no RST). Post-fix `RST_STREAM(CANCEL)` and `ResponseFuture` errors with CANCEL. Regression: `drop_send_stream_without_eos_resets_despite_response_future`. EOS already sent (`is_send_closed`) still does not RST.
+- **Fix branch:** `fix/drop-send-without-eos-resets`
+- **Change:** Last owning send-ref (`send_ref_count == 0`) after reclaim, if send half still open, `schedule_implicit_reset(CANCEL)` (pending_open abort / F18 pending_push paths unchanged).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
