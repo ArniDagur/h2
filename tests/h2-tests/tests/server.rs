@@ -2021,6 +2021,70 @@ async fn reject_extended_connect_request_without_path() {
 /// With authority, http::Uri::from_parts fails ("path missing") so RST is sent
 /// via the builder error path. With scheme only (no authority), h2 drops the
 /// scheme and previously accepted a request with empty path.
+
+/// RFC 9113 §8.3.1: server SHOULD treat request as malformed if Host
+/// differs from :authority.
+
+/// Matching Host and :authority is allowed (RFC does not forbid duplicates
+/// when they identify the same entity).
+#[tokio::test]
+async fn matching_host_with_authority_is_accepted() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .field("host", "example.com")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().authority().unwrap().as_str(), "example.com");
+        stream.send_response(Response::new(()), true).unwrap();
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
+#[tokio::test]
+async fn reject_host_header_differing_from_authority() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .field("host", "evil.example")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        assert!(srv.next().await.is_none(), "mismatched Host must not be accepted");
+        poll_fn(move |cx| srv.poll_closed(cx)).await.expect("server");
+    };
+
+    join(client, srv).await;
+}
+
 #[tokio::test]
 async fn reject_request_missing_path_pseudo() {
     h2_support::trace_init!();

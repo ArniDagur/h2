@@ -1697,7 +1697,7 @@ impl proto::Peer for Peer {
 
         // A request translated from HTTP/1 must not include the :authority
         // header
-        if let Some(authority) = pseudo.authority {
+        if let Some(ref authority) = pseudo.authority {
             let maybe_authority = uri::Authority::from_maybe_shared(authority.clone().into_inner());
             parts.authority = Some(maybe_authority.or_else(|why| {
                 malformed!(
@@ -1760,6 +1760,20 @@ impl proto::Peer for Peer {
         }
 
         b = b.uri(parts);
+
+        // RFC 9113 §8.3.1: a server SHOULD treat a request as malformed if Host
+        // identifies a different entity than :authority. Reject mismatches so
+        // authority confusion cannot reach the application (Go #80065).
+        if let (Some(host), Some(authority)) = (fields.get(http::header::HOST), &pseudo.authority)
+        {
+            if host.as_bytes() != authority.as_str().as_bytes() {
+                malformed!(
+                    "malformed headers: Host ({:?}) differs from :authority ({:?})",
+                    host,
+                    authority,
+                );
+            }
+        }
 
         let mut request = match b.body(()) {
             Ok(request) => request,
