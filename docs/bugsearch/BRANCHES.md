@@ -11,6 +11,7 @@
 | `fix/pending-open-send-task-waker` | F5 |
 | `fix/poll-capacity-after-settings-reclaim` | F6 |
 | `fix/push-promise-wake-on-parent-end` | F7 |
+| `fix/settings-decrease-wake-capacity` | F8 |
 
 ## experimental contains
-F1–F7, I1–I2, deadlock stress test, docs.
+F1–F8, I1–I2, deadlock stress test, docs.
