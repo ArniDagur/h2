@@ -29,5 +29,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2:** `FlowControl::inc_window` rejects overflow / `> MAX_WINDOW_SIZE` with FLOW_CONTROL_ERROR; integration coverage in flow_control tests (overflow after grow to max).
 - **Verdict:** match (not a fix-worthy h2 gap).
 
+### DATA on non-recv-streaming stream
+- **Go (`processData`):** idle/id0 → connection PROTOCOL_ERROR; otherwise not open → stream STREAM_CLOSED + connection FC refund.
+- **Rust h2 (pre-F23):** any `!is_recv_streaming` with stream in store → GOAWAY PROTOCOL_ERROR (over-aggressive).
+- **Rust h2 (F23):** stream STREAM_CLOSED + `ignore_data` (connection FC); forgotten streams already STREAM_CLOSED. Idle not-in-store still connection PROTOCOL_ERROR.
+- **Verdict:** F23 aligns with Go/RFC for late DATA after EOS.
+
 ## Planned comparisons
 - (none active beyond residual #848 API design)

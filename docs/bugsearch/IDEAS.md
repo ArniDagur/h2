@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F22 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F23 fixes; #853 dismiss; I1/I2 conservation.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -21,10 +21,11 @@
 - PUSH_PROMISE after parent closed → F20.
 - Authority without scheme on non-CONNECT → F21 (also convert-before-open for id burn).
 - Host vs :authority outbound (#876) → F22.
+- DATA after recv EOS as GOAWAY PROTOCOL_ERROR → F23 (stream STREAM_CLOSED).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F22.
+1. Package PRs for F3–F23.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -33,3 +34,4 @@
 - Connection window recovery threshold vs Go/nghttp2 (logged in COMPARISONS).
 - Reserved streams unbounded memory (TODO in streams.rs).
 - Push path still burns promised id if `convert_push_message` fails after `reserve_local` (HTTP/2 allows skips).
+- Idle-stream DATA is connection PROTOCOL_ERROR (RFC §5.1); streams not in store already GOAWAY — reserved-state DATA currently STREAM_CLOSED like Go (acceptable).

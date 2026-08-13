@@ -112,6 +112,12 @@
 - **Fix branch:** `fix/host-header-vs-authority`
 - **Change:** `Pseudo::promote_host_header`; applied in client `convert_send_message` and server `convert_push_message`. Invalid Host → `MalformedHeaders`.
 
+### F23 — DATA after recv EOS → connection GOAWAY instead of stream STREAM_CLOSED
+- **Severity:** Medium (protocol / resilience): `Recv::recv_data` treated any DATA while `!is_recv_streaming()` as connection `PROTOCOL_ERROR` (GOAWAY). RFC 9113 §6.1 requires stream error `STREAM_CLOSED` when DATA arrives outside open / half-closed (local) receive; §5.1 half-closed (remote) same. Go `processData` uses `streamError(STREAM_CLOSED)` and still applies connection flow control.
+- **Evidence:** Response headers with EOS then an extra DATA frame: pre-fix connection dies; post-fix `RST_STREAM(STREAM_CLOSED)`, ping + second request succeed. Regression `data_after_response_eos_is_stream_closed_not_goaway`. Forgotten-stream path already used STREAM_CLOSED; this covers streams still in the store (Closed / half-closed remote / awaiting headers).
+- **Fix branch:** `fix/data-after-eos-stream-closed`
+- **Change:** `ignore_data(sz)` then `Error::library_reset(id, STREAM_CLOSED)`; `reset_on_recv_stream_err` emits RST.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
