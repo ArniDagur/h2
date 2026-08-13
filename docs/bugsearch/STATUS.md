@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F61 pending merge)
+**Branch tip:** `experimental/bugsearch` (F61 @ `d8b2eb0`)
 
 ## Current focus
 F61: invalid `:scheme` tokens (digit-leading / non-RFC 3986).
