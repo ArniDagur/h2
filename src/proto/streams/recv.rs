@@ -254,14 +254,32 @@ impl Recv {
             use super::stream::ContentLength;
             use http::header;
 
-            if let Some(content_length) = frame.fields().get(header::CONTENT_LENGTH) {
-                let content_length = match frame::parse_u64(content_length.as_bytes()) {
+            // RFC 9110 §8.6: multiple Content-Length fields with differing
+            // values make the message invalid. HeaderMap::get only yields the
+            // first; walk get_all so mismatched duplicates are rejected.
+            let mut cl_iter = frame.fields().get_all(header::CONTENT_LENGTH).iter();
+            if let Some(first) = cl_iter.next() {
+                let content_length = match frame::parse_u64(first.as_bytes()) {
                     Ok(v) => v,
                     Err(_) => {
                         proto_err!(stream: "could not parse content-length; stream={:?}", stream.id);
                         return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
                     }
                 };
+                for other in cl_iter {
+                    match frame::parse_u64(other.as_bytes()) {
+                        Ok(v) if v == content_length => {}
+                        _ => {
+                            proto_err!(
+                                stream: "recv_headers: mismatched content-length values; stream={:?}",
+                                stream.id
+                            );
+                            return Err(
+                                Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into()
+                            );
+                        }
+                    }
+                }
 
                 stream.content_length = ContentLength::Remaining(content_length);
                 // END_STREAM on headers frame with non-zero content-length is malformed.
