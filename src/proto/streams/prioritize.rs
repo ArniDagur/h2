@@ -212,9 +212,9 @@ impl Prioritize {
         // Implicitly request more send capacity if not enough has been
         // requested yet.
         if (stream.requested_send_capacity as usize) < stream.buffered_send_data {
-            // Update the target requested capacity
+            // Update the target requested capacity (HTTP/2 max window, not u32::MAX)
             stream.requested_send_capacity =
-                cmp::min(stream.buffered_send_data, WindowSize::MAX as usize) as WindowSize;
+                cmp::min(stream.buffered_send_data, MAX_WINDOW_SIZE as usize) as WindowSize;
 
             // `try_assign_capacity` will queue the stream to `pending_capacity` if the capcaity
             // cannot be assigned at the time it is called.
@@ -271,7 +271,10 @@ impl Prioritize {
 
         // Actual capacity is `capacity` + the current amount of buffered data.
         // If it were less, then we could never send out the buffered data.
-        let capacity = (capacity as usize) + stream.buffered_send_data;
+        // Cap at MAX_WINDOW_SIZE (not WindowSize::MAX / u32::MAX): peer windows
+        // cannot exceed 2^31-1 (RFC 9113 §6.9.1).
+        let capacity =
+            ((capacity as usize) + stream.buffered_send_data).min(MAX_WINDOW_SIZE as usize);
 
         match capacity.cmp(&(stream.requested_send_capacity as usize)) {
             Ordering::Equal => {
@@ -304,8 +307,7 @@ impl Prioritize {
                 }
 
                 // Update the target requested capacity
-                stream.requested_send_capacity =
-                    cmp::min(capacity, WindowSize::MAX as usize) as WindowSize;
+                stream.requested_send_capacity = capacity as WindowSize;
 
                 // Try to assign additional capacity to the stream. If none is
                 // currently available, the stream will be queued to receive some

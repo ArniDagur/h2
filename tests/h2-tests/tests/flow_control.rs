@@ -2643,6 +2643,54 @@ async fn max_send_buffer_size_overflow() {
     join(srv, client).await;
 }
 
+/// `reserve_capacity` must clamp to MAX_WINDOW_SIZE, not truncate with
+/// `as u32` (e.g. 2^32+n → n, which under-requests or requests 0).
+#[tokio::test]
+async fn reserve_capacity_clamps_to_max_window_size() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(frames::headers(1).request("POST", "https://www.example.com/"))
+            .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        srv.recv_frame(frames::data(1, b"hi").eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://www.example.com/")
+            .body(())
+            .unwrap();
+        let (response, mut stream) = client.send_request(request, false).unwrap();
+        let response = conn.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Pre-fix: `as WindowSize` wrapped huge values; clamp keeps a full
+        // reservation so poll_capacity can still become Ready.
+        stream.reserve_capacity(usize::MAX);
+        let cap = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            poll_fn(|cx| stream.poll_capacity(cx)),
+        )
+        .await
+        .expect("poll_capacity hung after reserve_capacity(usize::MAX)")
+        .expect("stream closed")
+        .expect("capacity error");
+        assert!(cap > 0, "expected usable capacity after clamp, got {}", cap);
+
+        stream.send_data(Bytes::from_static(b"hi"), true).unwrap();
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, h2).await;
+}
+
 /// When `max_send_buffer_size` is below the remaining reservation and the
 /// stream window only partially covers it, `poll_capacity` must still return
 /// Ready for the usable `capacity()` slice. Pre-fix waited until

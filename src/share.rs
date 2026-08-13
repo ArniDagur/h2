@@ -283,8 +283,11 @@ impl<B: Buf> SendStream<B> {
     /// See [Flow control](struct.SendStream.html#flow-control) for an overview
     /// of how send flow control works.
     pub fn reserve_capacity(&mut self, capacity: usize) {
-        // TODO: Check for overflow
-        self.inner.reserve_capacity(capacity as WindowSize)
+        // HTTP/2 flow-control windows are at most MAX_WINDOW_SIZE (2^31-1).
+        // Truncating with `as WindowSize` silently wrapped large `usize` values
+        // (e.g. 2^32+n → n), under-requesting capacity. Clamp instead.
+        let capacity = capacity.min(proto::MAX_WINDOW_SIZE as usize) as WindowSize;
+        self.inner.reserve_capacity(capacity)
     }
 
     /// Returns the stream's current send capacity.
