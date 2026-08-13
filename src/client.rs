@@ -1644,6 +1644,14 @@ impl Peer {
             return Err(UserError::MalformedHeaders.into());
         }
 
+        // RFC 9113 §8.3.1: :authority MUST NOT include userinfo (user:pass@host).
+        // Pseudo::request copies http::Uri authority verbatim, which may contain it.
+        if let Some(ref authority) = pseudo.authority {
+            if authority.as_str().as_bytes().contains(&b'@') {
+                return Err(UserError::MalformedHeaders.into());
+            }
+        }
+
         if !is_connect && pseudo.scheme.is_none() {
             // Non-CONNECT requests need `:scheme` (RFC 9113 §8.3.1).
             //

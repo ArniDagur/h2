@@ -3153,6 +3153,54 @@ async fn response_headers_missing_status_is_stream_error() {
 /// RFC 9110: 204/205/304 responses are terminated by the header section;
 /// they cannot include content or trailers. HEADERS without END_STREAM is
 /// malformed (pre-fix then accepted DATA as a body).
+
+/// RFC 9113 §8.3.1: clients MUST NOT generate :authority with userinfo.
+/// Pre-fix Pseudo::request copied userinfo from http::Uri into :authority.
+#[tokio::test]
+async fn outbound_uri_userinfo_is_user_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://user:pass@example.com/")
+            .body(())
+            .unwrap();
+        let err = client
+            .send_request(request, true)
+            .expect_err("userinfo URI must not send");
+        assert!(
+            err.to_string().contains("malformed"),
+            "expected malformed headers, got {err}"
+        );
+        // Connection still usable after validation reject
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        drop(client);
+        conn.await.unwrap();
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn no_content_without_end_stream_is_stream_error() {
     h2_support::trace_init!();
