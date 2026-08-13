@@ -28,6 +28,10 @@ pub(super) struct Stream {
     /// concurrent streams.
     pub is_counted: bool,
 
+    /// Set when this stream occupies a reserved (remote) PUSH_PROMISE slot
+    /// (`Counts::num_reserved_streams`). Cleared on open or close.
+    pub is_reserved: bool,
+
     /// Number of outstanding handles pointing to this stream
     pub ref_count: usize,
 
@@ -175,6 +179,7 @@ impl Stream {
             state: State::default(),
             ref_count: 0,
             is_counted: false,
+            is_reserved: false,
 
             // ===== Fields related to sending =====
             next_pending_send: None,

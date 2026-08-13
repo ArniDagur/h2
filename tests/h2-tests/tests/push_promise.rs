@@ -512,6 +512,82 @@ async fn recv_push_promise_skipped_stream_id() {
     join(mock, h2).await;
 }
 
+/// Reserved (PUSH_PROMISE) streams count toward local open+reserved budget
+/// equal to max concurrent streams. Without this, a peer can flood PP while
+/// open count stays 0 and grow the stream store unboundedly.
+#[tokio::test]
+async fn recv_push_promise_over_max_concurrent_is_refused() {
+    h2_support::trace_init!();
+
+    let (io, mut srv) = mock::new();
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        // Client advertises max concurrent streams = 1.
+        assert_eq!(settings.max_concurrent_streams(), Some(1));
+
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // Parent response still open for PP; first push occupies the only slot
+        // while still reserved (no push HEADERS yet).
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(
+            frames::push_promise(1, 2).request("GET", "https://example.com/a.css"),
+        )
+        .await;
+        // Second reserved push exceeds open+reserved budget.
+        srv.send_frame(
+            frames::push_promise(1, 4).request("GET", "https://example.com/b.css"),
+        )
+        .await;
+        // Stream refused (not connection GOAWAY).
+        srv.recv_frame(frames::reset(4).refused()).await;
+        // Complete the accepted push and parent.
+        srv.send_frame(frames::headers(2).response(200).eos()).await;
+        srv.send_frame(frames::data(1, "").eos()).await;
+        // Connection stays healthy.
+        srv.ping_pong([1; 8]).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::Builder::new()
+            .max_concurrent_streams(1)
+            .handshake::<_, Bytes>(io)
+            .await
+            .unwrap();
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (mut resp, _) = client.send_request(request, true).unwrap();
+        let mut pushes = resp.push_promises();
+
+        let work = async {
+            let resp = resp.await.unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+            // Only the first push is accepted.
+            let p = poll_fn(|cx| pushes.poll_push_promise(cx))
+                .await
+                .expect("first push")
+                .expect("ok");
+            let (_req, push_resp) = p.into_parts();
+            let push_resp = push_resp.await.unwrap();
+            assert_eq!(push_resp.status(), StatusCode::OK);
+            // No second push promise delivered.
+            assert!(poll_fn(|cx| pushes.poll_push_promise(cx)).await.is_none());
+            let _ = util::concat(resp.into_body()).await;
+        };
+        h2.drive(work).await;
+        h2.await.unwrap();
+    };
+
+    join(mock, h2).await;
+}
+
 #[tokio::test]
 async fn recv_push_promise_dup_stream_id() {
     h2_support::trace_init!();

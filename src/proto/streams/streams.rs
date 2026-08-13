@@ -879,9 +879,9 @@ impl Inner {
             }
         };
 
-        // TODO: Streams in the reserved states do not count towards the concurrency
-        // limit. However, it seems like there should be a cap otherwise this
-        // could grow in memory indefinitely.
+        // Reserved streams do not count toward RFC concurrent-stream limits,
+        // but we cap open+reserved by max_recv_streams so PUSH_PROMISE cannot
+        // grow the store unboundedly (see Counts::can_reserve_recv_stream).
 
         // Ensure that we can reserve streams
         self.actions.recv.ensure_can_reserve()?;
@@ -914,7 +914,7 @@ impl Inner {
             let actions = &mut self.actions;
 
             self.counts.transition(stream, |counts, stream| {
-                let stream_valid = actions.recv.recv_push_promise(frame, stream);
+                let stream_valid = actions.recv.recv_push_promise(frame, stream, counts);
 
                 match stream_valid {
                     Ok(()) => Ok(Some(stream.key())),

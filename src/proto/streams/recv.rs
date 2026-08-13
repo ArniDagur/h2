@@ -75,7 +75,7 @@ pub(super) enum RecvHeaderBlockError<T> {
     State(Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) enum Open {
     PushPromise,
     Headers,
@@ -169,7 +169,15 @@ impl Recv {
 
         self.next_stream_id = id.next_id();
 
-        if !counts.can_inc_num_recv_streams() {
+        // Push promises create reserved streams (not yet "open" per RFC).
+        // Cap open+reserved so a flood of PUSH_PROMISE cannot grow the store
+        // without bound while num_recv_streams stays low.
+        let at_capacity = if mode.is_push_promise() {
+            !counts.can_reserve_recv_stream()
+        } else {
+            !counts.can_inc_num_recv_streams()
+        };
+        if at_capacity {
             self.refused = Some(id);
             return Ok(None);
         }
@@ -923,8 +931,11 @@ impl Recv {
         &mut self,
         frame: frame::PushPromise,
         stream: &mut store::Ptr,
+        counts: &mut Counts,
     ) -> Result<(), Error> {
         stream.state.reserve_remote()?;
+        // Count reserved against open+reserved budget immediately.
+        counts.inc_num_reserved_streams(stream);
         if frame.is_over_size() {
             // A frame is over size if the decoded header block was bigger than
             // SETTINGS_MAX_HEADER_LIST_SIZE.

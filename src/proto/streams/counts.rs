@@ -21,8 +21,14 @@ pub(super) struct Counts {
     /// Maximum number of remote initiated streams
     max_recv_streams: usize,
 
-    /// Current number of locally initiated streams
+    /// Current number of remote initiated streams that are open (counted).
     num_recv_streams: usize,
+
+    /// Remote-initiated streams in reserved (remote) state (PUSH_PROMISE
+    /// received, headers not yet). RFC 9113 §5.1.2 says reserved streams do
+    /// not count toward concurrency, but without a local cap a peer can
+    /// grow the store unboundedly while open count stays low.
+    num_reserved_streams: usize,
 
     /// Maximum number of pending locally reset streams
     max_local_reset_streams: usize,
@@ -57,6 +63,7 @@ impl Counts {
             num_pending_open: 0,
             max_recv_streams: config.remote_max_initiated.unwrap_or(usize::MAX),
             num_recv_streams: 0,
+            num_reserved_streams: 0,
             max_local_reset_streams: config.local_reset_max,
             num_local_reset_streams: 0,
             max_remote_reset_streams: config.remote_reset_max,
@@ -95,7 +102,37 @@ impl Counts {
     }
 
     pub fn has_streams(&self) -> bool {
-        self.num_send_streams != 0 || self.num_recv_streams != 0
+        self.num_send_streams != 0
+            || self.num_recv_streams != 0
+            || self.num_reserved_streams != 0
+    }
+
+    /// Open + reserved remote-initiated streams (local DoS budget for push).
+    pub fn recv_stream_occupancy(&self) -> usize {
+        self.num_recv_streams + self.num_reserved_streams
+    }
+
+    /// Whether another reserved (PUSH_PROMISE) stream may be accepted.
+    pub fn can_reserve_recv_stream(&self) -> bool {
+        self.max_recv_streams > self.recv_stream_occupancy()
+    }
+
+    /// Record a stream entering reserved (remote) after PUSH_PROMISE.
+    pub fn inc_num_reserved_streams(&mut self, stream: &mut store::Ptr) {
+        assert!(self.can_reserve_recv_stream());
+        assert!(!stream.is_reserved);
+        assert!(!stream.is_counted);
+        self.num_reserved_streams += 1;
+        stream.is_reserved = true;
+    }
+
+    /// Clear reserved accounting when the stream opens or is discarded.
+    pub fn clear_reserved(&mut self, stream: &mut store::Ptr) {
+        if stream.is_reserved {
+            assert!(self.num_reserved_streams > 0);
+            self.num_reserved_streams -= 1;
+            stream.is_reserved = false;
+        }
     }
 
     /// Returns true if we can issue another local reset due to protocol error.
@@ -119,18 +156,28 @@ impl Counts {
     }
 
     /// Returns true if the receive stream concurrency can be incremented
+    /// (new open stream that was not previously reserved).
     pub fn can_inc_num_recv_streams(&self) -> bool {
         self.max_recv_streams > self.num_recv_streams
     }
 
     /// Increments the number of concurrent receive streams.
     ///
+    /// If the stream was reserved (PUSH_PROMISE), clears reserved occupancy
+    /// first so open+reserved is not double-counted.
+    ///
     /// # Panics
     ///
     /// Panics on failure as this should have been validated before hand.
     pub fn inc_num_recv_streams(&mut self, stream: &mut store::Ptr) {
-        assert!(self.can_inc_num_recv_streams());
+        let was_reserved = stream.is_reserved;
+        // Promote reserved → open: free reserved slot first.
+        self.clear_reserved(stream);
+
         assert!(!stream.is_counted);
+        if !was_reserved {
+            assert!(self.can_inc_num_recv_streams());
+        }
 
         // Increment the number of remote initiated streams
         self.num_recv_streams += 1;
@@ -250,6 +297,9 @@ impl Counts {
                     self.dec_num_reset_streams();
                 }
             }
+
+            // Drop reserved occupancy if the stream never opened.
+            self.clear_reserved(&mut stream);
 
             if !stream.state.is_scheduled_reset() && stream.is_counted {
                 tracing::trace!("dec_num_streams; stream={:?}", stream.id);
