@@ -918,6 +918,9 @@ impl Prioritize {
                 tracing::trace!("schedule_pending_open; stream={:?}", stream.id);
 
                 counts.inc_num_send_streams(&mut stream);
+                // Wake both: SendRequest may wait on open_task while SendStream
+                // poll_capacity/poll_reset wait on send_task.
+                stream.notify_open();
                 stream.notify_send();
                 return Some(stream);
             }
