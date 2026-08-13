@@ -78,6 +78,7 @@
 - Drop SendStream while recv handle lives leaked reserved capacity → F77.
 - SendResponse after send_response still counted as send handle → F78.
 - DATA on pending_open treated as STREAM_CLOSED (F23 over-broad) → F79.
+- Pre-existing test failures (`recv_too_big_headers`, `srv_window_update_on_lower_stream_id`, `recv_invalid_push_promise_headers_is_stream_protocol_error`): stale after F74/F36/F32, not new library bugs.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 - Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.

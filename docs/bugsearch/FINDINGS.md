@@ -464,6 +464,11 @@
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
 
 ## Dismissed
+### S4 — Three failing integration tests after F32/F36/F74
+- `recv_too_big_headers`: RST now emitted on fully closed stream 1 (oversize) as well as stream 3; mock expected only RST(3).
+- `srv_window_update_on_lower_stream_id` (#208): fixture `headers(7).eos()` omits `:status`; F36 RST(7) PROTOCOL_ERROR before the WU-on-5 scenario.
+- `recv_invalid_push_promise_headers_is_stream_protocol_error`: POST/CL≠0 still rejected in `PushPromise::validate_request`; extra collected item is parent 404-then-404+EOS treated as trailers with `:status` (F32) on `push_promises` poll.
+
 ### S1 — #853 — likely fixed by #860
 ### S2 — sticky poll → F4
 ### S3 — InFlightData::Drop capacity leak — false positive: Drop means codec still owns the frame and will write it; remaining body in the Take is intentional cancel discard, only the charged chunk is sent. FC accounting matches wire intent.
