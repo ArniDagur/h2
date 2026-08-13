@@ -35,5 +35,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F23):** stream STREAM_CLOSED + `ignore_data` (connection FC); forgotten streams already STREAM_CLOSED. Idle not-in-store still connection PROTOCOL_ERROR.
 - **Verdict:** F23 aligns with Go/RFC for late DATA after EOS.
 
+### HEADERS after recv EOS
+- **Go (`processHeaders`):** `stateHalfClosedRemote` → stream STREAM_CLOSED.
+- **Rust h2 (pre-F24):** treated as trailers → `recv_close` → GOAWAY PROTOCOL_ERROR.
+- **Rust h2 (F24):** `is_recv_end_stream` → stream STREAM_CLOSED before `recv_trailers`.
+- **Verdict:** F24 aligns with Go/RFC.
+
 ## Planned comparisons
 - (none active beyond residual #848 API design)

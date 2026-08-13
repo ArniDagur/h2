@@ -27,6 +27,7 @@
 | `fix/reject-authority-without-scheme` | F21 |
 | `fix/host-header-vs-authority` | F22 |
 | `fix/data-after-eos-stream-closed` | F23 |
+| `fix/headers-after-eos-stream-closed` | F24 |
 
 ## experimental contains
-F1–F23, I1–I2, deadlock stress test, docs.
+F1–F24, I1–I2, deadlock stress test, docs.

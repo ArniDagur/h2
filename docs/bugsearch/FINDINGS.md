@@ -118,6 +118,12 @@
 - **Fix branch:** `fix/data-after-eos-stream-closed`
 - **Change:** `ignore_data(sz)` then `Error::library_reset(id, STREAM_CLOSED)`; `reset_on_recv_stream_err` emits RST.
 
+### F24 — HEADERS after recv EOS → connection GOAWAY instead of stream STREAM_CLOSED
+- **Severity:** Medium (protocol / resilience): F23 sibling. When `!is_recv_headers()`, HEADERS was always treated as trailers; if recv half already ended (`is_recv_end_stream`), `recv_trailers` → `recv_close` hit Closed/HalfClosedRemote and returned connection GOAWAY `PROTOCOL_ERROR`. RFC 9113 §5.1 half-closed (remote) requires stream error `STREAM_CLOSED` for extra HEADERS; Go `processHeaders` does `streamError(STREAM_CLOSED)`.
+- **Evidence:** Response headers with EOS then another HEADERS+EOS: pre-fix connection dies; post-fix `RST_STREAM(STREAM_CLOSED)`, ping + second request succeed. Valid trailers (HEADERS+EOS while still streaming) unchanged. Regression `headers_after_response_eos_is_stream_closed_not_goaway`.
+- **Fix branch:** `fix/headers-after-eos-stream-closed`
+- **Change:** In `recv_headers`, if `is_recv_end_stream()`, `library_reset(STREAM_CLOSED)` before `recv_trailers`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
