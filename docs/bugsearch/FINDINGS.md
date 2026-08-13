@@ -130,6 +130,12 @@
 - **Fix branch:** `fix/push-convert-before-reserve`
 - **Change:** `ensure_next_stream_id` → convert → `reserve_local`; assert promised id matches frame.
 
+### F26 — Uncapped reserved PUSH_PROMISE streams (memory DoS)
+- **Severity:** Medium (resource / DoS): RFC 9113 §5.1.2 says reserved streams do not count toward concurrent streams. h2 checked `can_inc_num_recv_streams` on PP `open()` but only `inc_num_recv_streams` on push HEADERS, so while open count stayed below max a peer could emit unlimited PUSH_PROMISE entries in the store (TODO in streams.rs).
+- **Evidence:** Client `max_concurrent_streams(1)`: first PP accepted; second PP gets `RST_STREAM(REFUSED_STREAM)`; connection remains usable (ping). Pre-fix second PP was stored. Regression `recv_push_promise_over_max_concurrent_is_refused`.
+- **Fix branch:** `fix/cap-reserved-push-streams`
+- **Change:** `Counts::num_reserved_streams` + `Stream::is_reserved`; `can_reserve_recv_stream` (open+reserved < max); PP `open` uses it; `recv_push_promise` incs reserved; `inc_num_recv_streams` clears reserved when promoting; `transition_after` clears reserved on close.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
