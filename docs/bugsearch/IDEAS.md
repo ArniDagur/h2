@@ -32,8 +32,9 @@
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F30.
-2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
+1. Prove/fix S3: `InFlightData::Drop` restore send windows for unsent bytes (`new_with_write_capacity`).
+2. Package PRs for F3–F30.
+3. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
 - Upstream notes on findings.
@@ -43,3 +44,5 @@
 - Separate configurable max reserved streams (currently tied to max concurrent).
 - Dedup connection-header checks (Send::check_headers vs convert_push_message copy).
 - poll_accept TODO: drop pending_accept when connection already closed (streams cleared on Drop).
+- GOAWAY + pending_open occupancy: already aborted via `is_reset` path; conn_error blocks new streams after remote GOAWAY (not an occupancy leak).
+- F30 residual mid-response NO_ERROR + temporary window 0: wait for peer WU by design (unlike schedule-time window 0 → CANCEL).

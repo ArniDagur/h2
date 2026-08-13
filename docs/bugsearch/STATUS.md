@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F30: server early-response NO_ERROR hang when peer stream window is already 0.
+Suspect S3: in-flight DATA cancel may leak send-side flow-control for unsent bytes (`InFlightData::Drop`).
 
 ## Last actions
-1. Confirmed **F30**: `#896` keeps buffered DATA for scheduled NO_ERROR so the response can complete. Peer `INITIAL_WINDOW_SIZE=0` → DATA never flushes → NO_ERROR RST deferred forever after server drops handles on an early response.
-2. Fix: `maybe_cancel` uses CANCEL when unsent body remains and stream window is already closed; keep NO_ERROR when fully flushed or window can still progress (mid-response WU).
-3. Regression: `early_response_zero_window_uses_cancel_not_hang`; existing NO_ERROR body-then-WU tests still pass.
+1. Hunt after F30: GOAWAY vs `pending_open` occupancy — already freed via `abort_closed_pending_open` (`is_reset` + empty queue); cannot repro occupancy stuck because remote GOAWAY sets `conn_error` (no new streams on that conn).
+2. Identified **S3**: when `clear_queue` marks `in_flight_data_frame = Drop` during cancel, `reclaim_frame_inner` discards remaining payload without restoring stream/connection send windows charged when the frame was popped. Permanent send capacity shrink for unsent bytes (up to max frame size). Needs repro with `mock::new_with_write_capacity` partial writes.
+3. No new confirmed fix this fire.
 
 ## Next recommended step
-1. Package PRs for F3–F30.
-2. Or residual #848 API ready-at-max-open.
-3. Or further FC/wakeup hunt.
+1. Prove/fix S3 (in-flight Drop capacity restore) with limited write capacity.
+2. Package PRs for F3–F30.
+3. Residual #848 API ready-at-max-open.
 
 ## Blockers
 None.

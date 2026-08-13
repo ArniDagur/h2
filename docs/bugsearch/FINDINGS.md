@@ -174,4 +174,8 @@
 ### #882 `is_end_stream` false after reset — intentional (#810); sticky `data()` fixed by F4
 
 ## Suspects
-None active.
+### S3 — In-flight DATA cancel leaks send flow-control for unsent bytes
+- **Severity:** Low–medium (correctness / capacity): On `pop_frame` DATA, stream+connection send windows are charged for the full chunk before the codec writes it. If the stream is cancelled while that frame is still in the codec (`clear_queue` → `InFlightData::Drop`), `reclaim_frame_inner` drops remaining payload without restoring windows for unsent bytes. Peer never received those octets, so our send window stays permanently reduced (up to one max-frame chunk).
+- **Evidence:** Code path only so far (`prioritize.rs` Drop arm + `send_data`/`flow.send_data` before buffer). Existing `rst_with_buffered_data` uses `new_with_write_capacity(73)` but does not assert window restoration.
+- **Not confirmed:** Need a regression that cancels mid-partial-write and checks subsequent stream/connection send capacity.
+- **Status:** open (next fire).
