@@ -61,6 +61,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 recv (pre-F70 / F34):** did not apply 1xx CL to final body tracking, but accepted the 1xx and exposed CL via `poll_informational`.
 - **Rust h2 recv (F70):** any Content-Length on 1xx → stream PROTOCOL_ERROR (matches RFC/nghttp2/outbound; stricter than Go).
 
+### Empty `:protocol` (extended CONNECT)
+- **RFC 8441:** `:protocol` carries an ALPN protocol identifier (non-empty in practice).
+- **nghttp2:** `check_pseudo_header` rejects zero-length pseudo values (including `:protocol`).
+- **Rust h2 (pre-F71):** empty `Protocol` and SP/HTAB-padded values accepted as extended CONNECT.
+- **Rust h2 (F71):** reject empty or leading/trailing-WS protocol on recv and generate.
+
 ### 101 Switching Protocols
 - **RFC 9113 §8.1:** HTTP/2 does not support 101 (Switching Protocols); Upgrade is not used on HTTP/2.
 - **Rust h2 (pre-F57):** 101 treated as ordinary informational 1xx on recv and generatable via `send_informational`.

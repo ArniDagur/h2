@@ -404,6 +404,12 @@
 - **Fix branch:** `fix/reject-content-length-on-1xx`
 - **Change:** Client `recv_headers` rejects informational HEADERS that include Content-Length before `recv_open`.
 
+### F71 — Empty / whitespace `:protocol` accepted as extended CONNECT
+- **Severity:** Medium (protocol): RFC 8441 sets `:protocol` to an ALPN protocol identifier; empty is not valid. nghttp2 rejects empty pseudo-header values via `check_pseudo_header`. Pre-fix, empty `Protocol` (and SP/HTAB-padded values) were accepted and treated as extended CONNECT.
+- **Evidence:** Peer CONNECT with empty `:protocol` or `" websocket"` → post-fix `RST_STREAM(PROTOCOL_ERROR)`. `send_request` with empty/`" websocket"` Protocol → `MalformedHeaders`. Regressions: `reject_empty_protocol_pseudo`, `send_request_rejects_empty_protocol`.
+- **Fix branch:** `fix/reject-empty-protocol`
+- **Change:** Server `convert_poll_message` and client `convert_send_message` reject empty or leading/trailing-WS protocol tokens.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

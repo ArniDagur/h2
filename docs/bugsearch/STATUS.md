@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F70 @ `fd16a62`)
+**Branch tip:** `experimental/bugsearch` (F71 @ `3e62e66`)
 
 ## Current focus
-F70: Content-Length on informational (1xx) responses.
+F71: empty / whitespace `:protocol` on extended CONNECT.
 
 ## Last actions
-1. Confirmed **F70**: RFC 9110 §8.6 forbids CL on 1xx; nghttp2 rejects; outbound already rejects; pre-fix only skipped body tracking (F34).
-2. Fix: reject informational HEADERS with Content-Length before `recv_open`.
-3. Regressions: `informational_with_content_length_is_stream_error`, `informational_without_content_length_then_body_ok`.
+1. Confirmed **F71**: nghttp2 rejects empty pseudo values; empty `Protocol` was accepted as extended CONNECT; SP/HTAB padding also accepted.
+2. Fix: reject empty or leading/trailing-WS `:protocol` on server recv and client send.
+3. Regressions: `reject_empty_protocol_pseudo`, `send_request_rejects_empty_protocol`.
 
 ## Next recommended step
-1. Package PRs for F3–F70.
+1. Package PRs for F3–F71.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt (empty IPv6 `[]`; empty `:protocol`).
+3. Further FC/wakeup / protocol hunt (empty IPv6 `[]` residual).
 
 ## Blockers
 None.
