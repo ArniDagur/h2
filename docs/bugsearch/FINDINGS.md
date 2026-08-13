@@ -102,9 +102,15 @@
 
 ### F21 — Authority without scheme on non-CONNECT requests
 - **Severity:** Medium (protocol): RFC 9113 §8.3.1 requires `:method`, `:scheme`, and `:path` on all non-CONNECT requests. `convert_send_message` handled relative URIs (no authority) but left a `// TODO: Error` for authority-present / scheme-absent (e.g. `Uri` of `example.com:8080` / OPTIONS host form), so HEADERS went on the wire without `:scheme`.
-- **Evidence:** Pre-fix `send_request(GET, "example.com:8080")` succeeded; post-fix `UserError::MissingUriSchemeAndAuthority`. Regression `request_with_authority_without_scheme_is_user_error`. CONNECT authority-only remains valid.
+- **Evidence:** Pre-fix `send_request(GET, "example.com:8080")` succeeded; post-fix `UserError::MissingUriSchemeAndAuthority` for `Version::HTTP_2`. Regression `request_with_authority_without_scheme_is_user_error`. CONNECT authority-only remains valid. HTTP/1.x-version requests still default `:scheme` to `http`.
 - **Fix branch:** `fix/reject-authority-without-scheme`
-- **Change:** Reject in `client::Peer::convert_send_message`; same check in `server::Peer::convert_push_message`; run convert before `Send::open()` so validation does not burn a stream id.
+- **Change:** Reject missing scheme on HTTP/2-version non-CONNECT in `convert_send_message`; same scheme check on server `convert_push_message`; run convert before `Send::open()` so validation does not burn a stream id.
+
+### F22 — Host header vs `:authority` on outbound requests (#876)
+- **Severity:** Medium (protocol / interop): User-supplied `Host` was kept as a regular header while `:authority` came from the URI. Differing values violate RFC 9113 §8.3.1 (“MUST NOT generate a request with a Host header field that differs from the :authority…”). curl/Go promote Host → `:authority` and strip `host`.
+- **Evidence:** `Host: example.net` + URI `https://example.com/` previously wired both; post-fix only `:authority: example.net`. Matching Host is stripped. Relative `/path` + Host works for HTTP/1.x-version. Regression `host_header_promoted_to_authority_and_stripped`.
+- **Fix branch:** `fix/host-header-vs-authority`
+- **Change:** `Pseudo::promote_host_header`; applied in client `convert_send_message` and server `convert_push_message`. Invalid Host → `MalformedHeaders`.
 
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds

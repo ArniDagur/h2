@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F21 fixes; #853 dismiss; I1/I2 conservation.
+- F1–F22 fixes; #853 dismiss; I1/I2 conservation.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -20,10 +20,11 @@
 - clear_queue unsent PP orphans promised child → F19.
 - PUSH_PROMISE after parent closed → F20.
 - Authority without scheme on non-CONNECT → F21 (also convert-before-open for id burn).
+- Host vs :authority outbound (#876) → F22.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F21.
+1. Package PRs for F3–F22.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

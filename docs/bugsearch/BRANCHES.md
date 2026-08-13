@@ -25,6 +25,7 @@
 | `fix/clear-queue-discards-unsent-push-children` | F19 |
 | `fix/push-promise-parent-state-check` | F20 |
 | `fix/reject-authority-without-scheme` | F21 |
+| `fix/host-header-vs-authority` | F22 |
 
 ## experimental contains
-F1–F21, I1–I2, deadlock stress test, docs.
+F1–F22, I1–I2, deadlock stress test, docs.
