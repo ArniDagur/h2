@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F66 pending merge)
+**Branch tip:** `experimental/bugsearch` (F66 @ `795c968`)
 
 ## Current focus
 F66: empty host in `:authority` (e.g. `:80`).
