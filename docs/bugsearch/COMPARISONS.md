@@ -41,5 +41,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F24):** `is_recv_end_stream` → stream STREAM_CLOSED before `recv_trailers`.
 - **Verdict:** F24 aligns with Go/RFC.
 
+### Informational (1xx) HEADERS with END_STREAM
+- **Go:** rejects `"1xx informational response with END_STREAM flag"`.
+- **Rust h2 (pre-F33):** `recv_open` applied EOS first → half-closed remote, then queued InformationalHeaders.
+- **Rust h2 (F33):** stream PROTOCOL_ERROR before `recv_open`.
+- **Verdict:** F33 aligns with Go/RFC.
+
 ## Planned comparisons
-- (none active beyond residual #848 API design)
+- Cap on number of 1xx responses (Go `max1xxResponses = 5`) — optional h2 hardening, not a clear RFC must.
+- Residual #848 API design.
