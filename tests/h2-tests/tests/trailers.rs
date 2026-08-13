@@ -247,6 +247,13 @@ async fn send_trailers_rejects_connection_specific_headers() {
         let err = stream.send_trailers(te_bad).expect_err("te: chunked");
         assert_eq!(err.to_string(), "user error: malformed headers");
 
+        // RFC 9113 §8.1: Content-Length is a framing field and MUST NOT be
+        // generated in trailers (separate from connection-specific list).
+        let mut cl = HeaderMap::new();
+        cl.insert("content-length", "0".parse().unwrap());
+        let err = stream.send_trailers(cl).expect_err("content-length");
+        assert_eq!(err.to_string(), "user error: malformed headers");
+
         // The rejections above must not have corrupted stream state: a clean trailer
         // still sends and the exchange completes normally.
         let mut good = HeaderMap::new();
@@ -312,3 +319,56 @@ async fn recv_trailers_with_pseudo_header_is_stream_error() {
 
     join(srv, client).await;
 }
+
+
+/// RFC 9113 §8.1: Content-Length MUST NOT appear in trailers (message framing).
+#[tokio::test]
+async fn recv_trailers_with_content_length_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(
+            frames::headers(1)
+                .field("content-length", "5")
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("response headers");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let mut body = resp.into_body();
+        // Malformed trailers become a stream reset on the next body poll.
+        let err = conn
+            .drive(body.data())
+            .await
+            .expect("expected Some(Err) for stream reset")
+            .expect_err("content-length in trailers must error");
+        assert!(err.is_reset(), "expected stream reset, got {err}");
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(body);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+

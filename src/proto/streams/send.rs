@@ -358,6 +358,11 @@ impl Send {
         // untouched and still able to send valid trailers.
         Self::check_headers(frame.fields())?;
 
+        // RFC 9113 §8.1: Content-Length MUST NOT be sent in trailers.
+        if frame.fields().contains_key(http::header::CONTENT_LENGTH) {
+            return Err(UserError::MalformedHeaders);
+        }
+
         // TODO: Should this logic be moved into state.rs?
         if !stream.state.is_send_streaming() {
             return Err(UserError::UnexpectedFrameType);

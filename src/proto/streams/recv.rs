@@ -554,6 +554,17 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR));
         }
 
+        // RFC 9113 §8.1: framing-related fields (Content-Length, etc.) MUST NOT
+        // appear in trailers. Transfer-Encoding is already rejected as a
+        // connection-specific header in load_hpack; Content-Length is not.
+        if frame.fields().contains_key(http::header::CONTENT_LENGTH) {
+            proto_err!(
+                stream: "recv_trailers: content-length in trailers; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR));
+        }
+
         if stream.ensure_content_length_zero().is_err() {
             proto_err!(stream: "recv_trailers: content-length is not zero; stream={:?};",  stream.id);
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR));
