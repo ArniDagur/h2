@@ -1,7 +1,7 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F63 pending merge)
+**Branch tip:** `experimental/bugsearch` (F63 @ `9d8bce3`)
 
 ## Current focus
 F63: empty Content-Length field accepted as 0.
