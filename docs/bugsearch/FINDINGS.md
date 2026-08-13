@@ -3,33 +3,25 @@
 ## Confirmed (fixed on experimental / per-bug branches)
 
 ### F1 — Scheduled library reset surfaced as GOAWAY
-- **Severity:** Low–medium (API correctness / misclassification).
 - **Fix branch:** `fix/scheduled-reset-error-kind`
 
 ### F2 — Capacity-0 send path may leave stream off `pending_capacity`
-- **Severity:** Medium if hit (stream hang); latent/defensive.
 - **Fix branch:** `fix/pending-capacity-requeue-on-zero`
-- **Test:** `connection_window_update_resumes_starved_buffered_stream`.
 
-## Instrumentation (no bug found yet)
+### F3 — Connection recv `in_flight` not released on non-Reset DATA errors
+- **Severity:** Medium — connection flow-control capacity leak after failed DATA processing post-window consume (e.g. library GoAway paths). Stream-window Reset was released by Streams; GoAway was not.
+- **Evidence:** `Streams::recv_data` only called `release_connection_capacity` on `Err(Reset)`; `recv_data` could return GoAway after `consume_connection_window`. Unit test `stream_window_error_releases_connection_in_flight`.
+- **Fix branch:** `fix/recv-data-error-releases-conn-capacity`
+- **Change:** release inside `recv_data` on any post-consume error; drop Streams-side release.
 
-### I1 — Send capacity conservation (debug asserts)
-- **Invariant:** `Σ stream.send available + conn.available == conn.window` (signed i32 math).
-- **Also:** no `pending_open` stream may hold `send_flow.available != 0`.
-- **Result:** holds under existing integration suites (debug profile).
-- **Location:** `Prioritize::debug_assert_send_capacity_conservation`, called from `buffer_pending`, conn WU, SETTINGS path.
+## Instrumentation
 
-## Dismissed / not reproduced
+### I1 — Send capacity conservation (debug) — holds
+### I2 — Recv in-flight conservation (debug) — holds when summing **slab**
+- Unlinked streams (closed, still referenced) keep `in_flight_recv_data`; do not sum only `ids`.
 
-### S1 — #853 connection capacity logical deadlock → **likely fixed by #860**
-- Stress test `logical_deadlock_max_concurrent_streams_stress` passes repeatedly.
-- See prior notes on #852 harness missing `release_capacity` / `ready()`.
+## Dismissed
+### S1 — #853 — likely fixed by #860
 
 ## Suspects
-
-### S2 — Sticky `poll_data` errors after reset (#882)
-- After non-EOS reset, `ensure_recv_open` keeps returning `Err`; `is_end_stream()` false. EOS+reset improved by #922.
-
-## Not bugs / intentional
-- `RecvStream` drop releases connection FC (#930) but not stream window.
-- Skipping closed streams in `assign_connection_capacity`: capacity remains on conn `available`.
+### S2 — Sticky `poll_data` after reset (#882)

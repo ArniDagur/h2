@@ -4,19 +4,18 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-Send-side flow-control integrity instrumentation and hunting remaining capacity bugs.
+Recv-side flow-control accounting (post-consume DATA errors + conservation).
 
 ## Last actions
-1. Added **debug-only send capacity conservation** checks:
-   - `sum(stream.send_flow.available_signed) + conn.available_signed == conn.window_size_signed`
-   - `pending_open` streams must not hold send capacity
-   - Hooks: `buffer_pending` entry/exit, connection WINDOW_UPDATE, SETTINGS initial window change
-2. Ran flow_control, prioritization, stream_states, client_request, deadlock — **all pass** (no conservation violations).
+1. Found **F3**: after `consume_connection_window`, `Streams::recv_data` only released connection `in_flight` on `Error::Reset`, not on other errors (e.g. GoAway from bad `recv_close`). Capacity could stick on the connection with no stream owner.
+2. Fixed by releasing inside `recv_data` for every post-consume error; removed Streams Reset-only release (would double-release).
+3. Added **I2** recv in-flight conservation assert (`conn.in_flight_data == Σ slab in_flight_recv_data`); must sum **slab** not `ids` (unlinked closed streams still hold user capacity).
+4. Unit test `stream_window_error_releases_connection_in_flight`; integration suites green.
 
 ## Next recommended step
-1. Investigate **S2** sticky `poll_data` after reset (#882) — or shared `send_task` multi-waiter wakeups.
-2. Or SETTINGS_INITIAL_WINDOW_SIZE decrease + multi-stream differential vs Go (port a regression).
-3. Or extend conservation checks to **recv-side** (`in_flight_data` vs stream `in_flight_recv_data`).
+1. S2 sticky `poll_data` after reset (#882), or shared `send_task` wakeups.
+2. Or SETTINGS window-decrease differential vs Go/nghttp2.
+3. Or run full `cargo test` / fuzz for F3 edge cases.
 
 ## Blockers
 None.
