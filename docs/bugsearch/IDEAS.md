@@ -60,7 +60,7 @@
 - Empty `:scheme` accepted → F59.
 - Non-OPTIONS `:path` = `*` → F60.
 - Invalid scheme tokens (digit-leading etc.) → F61.
-- Non-CONNECT without `:authority` or Host → F62.
+- Non-CONNECT without `:authority` or Host → F62 (also broke #853 deadlock stress `uri("/")` → fixed test to absolute URI).
 - Empty Content-Length field as 0 → F63.
 - TE: trailers case-sensitive only → F64.
 - try_assign u32 wrap available > window → F65.
