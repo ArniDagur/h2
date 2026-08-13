@@ -303,6 +303,12 @@ where
         me.actions.ensure_no_conn_error()?;
         me.actions.send.ensure_next_stream_id()?;
 
+        // Peer will not accept any streams; do not queue pending_open that can
+        // never leave the queue (would hang ResponseFuture / poll_ready).
+        if me.counts.max_send_streams() == 0 {
+            return Err(UserError::Rejected.into());
+        }
+
         // The `pending` argument is provided by the `Client`, and holds
         // a store `Key` of a `Stream` that may have been not been opened
         // yet.

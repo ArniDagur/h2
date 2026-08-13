@@ -2346,12 +2346,8 @@ async fn frame_on_pending_open_stream_is_conn_error() {
     }
 }
 
-/// Dropping a stream stuck in `pending_open` because the peer advertised
-/// `MAX_CONCURRENT_STREAMS = 0` must free the stream without hanging.
-///
-/// The stream was never opened on the wire, so no HEADERS/RST should be sent
-/// (RST on idle is PROTOCOL_ERROR). Pre-fix, cancelled pending_open streams
-/// waited for `can_inc_num_send_streams()` and leaked forever when max=0.
+/// With peer `MAX_CONCURRENT_STREAMS = 0`, `send_request` must fail immediately
+/// (`Rejected`) rather than queueing a never-openable `pending_open` stream.
 #[tokio::test]
 async fn drop_pending_open_with_max_concurrent_streams_zero() {
     use std::time::Duration;
@@ -2364,17 +2360,15 @@ async fn drop_pending_open_with_max_concurrent_streams_zero() {
             .await;
         assert_default_settings!(settings);
 
-        // No stream frames: the cancelled pending_open request must be
-        // discarded locally. Connection may send GOAWAY then EOF.
         let frame = tokio::time::timeout(Duration::from_secs(2), srv.next())
             .await
-            .expect("connection did not close (pending_open leak?)");
+            .expect("connection did not close");
         match frame {
             None => {}
             Some(Ok(frame::Frame::GoAway(_))) => {
                 srv.recv_eof().await;
             }
-            other => panic!("unexpected frame after cancelled pending_open: {:?}", other),
+            other => panic!("unexpected frame: {:?}", other),
         }
     };
 
@@ -2382,7 +2376,6 @@ async fn drop_pending_open_with_max_concurrent_streams_zero() {
         let (mut client, conn) = client::handshake(io).await.unwrap();
         let conn = tokio::spawn(async move { conn.await });
 
-        // Wait until peer SETTINGS (max=0) is applied.
         tokio::time::timeout(Duration::from_secs(2), async {
             while client.current_max_send_streams() != 0 {
                 tokio::task::yield_now().await;
@@ -2397,15 +2390,14 @@ async fn drop_pending_open_with_max_concurrent_streams_zero() {
             .body(())
             .unwrap();
 
-        // max=0 → stream is queued in pending_open and never opens.
-        let (resp, send_stream) = client.send_request(request, true).unwrap();
-        drop(resp);
-        drop(send_stream);
+        client
+            .send_request(request, true)
+            .expect_err("max=0 must Rejected, not queue pending_open");
         drop(client);
 
         tokio::time::timeout(Duration::from_secs(2), conn)
             .await
-            .expect("client connection hung with leaked pending_open")
+            .expect("client connection hung")
             .expect("join conn task")
             .expect("client connection error");
     };
@@ -2413,11 +2405,8 @@ async fn drop_pending_open_with_max_concurrent_streams_zero() {
     join(srv, client).await;
 }
 
-/// Explicit `send_reset` on a `pending_open` stream when the peer advertises
-/// `MAX_CONCURRENT_STREAMS = 0` must free the stream without hanging.
-///
-/// Pre-fix kept HEADERS+RST queued waiting for a concurrency slot that never
-/// arrives. The stream was never on the wire, so discard locally.
+/// Same as drop_pending_open max=0: send_request is Rejected before any stream
+/// exists, so send_reset is not reachable under max=0.
 #[tokio::test]
 async fn send_reset_pending_open_with_max_concurrent_streams_zero() {
     use std::time::Duration;
@@ -2432,16 +2421,13 @@ async fn send_reset_pending_open_with_max_concurrent_streams_zero() {
 
         let frame = tokio::time::timeout(Duration::from_secs(2), srv.next())
             .await
-            .expect("connection did not close (pending_open send_reset leak?)");
+            .expect("connection did not close");
         match frame {
             None => {}
             Some(Ok(frame::Frame::GoAway(_))) => {
                 srv.recv_eof().await;
             }
-            other => panic!(
-                "unexpected frame after send_reset on pending_open: {:?}",
-                other
-            ),
+            other => panic!("unexpected frame: {:?}", other),
         }
     };
 
@@ -2463,15 +2449,14 @@ async fn send_reset_pending_open_with_max_concurrent_streams_zero() {
             .body(())
             .unwrap();
 
-        let (resp, mut send_stream) = client.send_request(request, false).unwrap();
-        send_stream.send_reset(Reason::CANCEL);
-        drop(resp);
-        drop(send_stream);
+        client
+            .send_request(request, false)
+            .expect_err("max=0 must Rejected");
         drop(client);
 
         tokio::time::timeout(Duration::from_secs(2), conn)
             .await
-            .expect("client connection hung after send_reset on pending_open")
+            .expect("client connection hung")
             .expect("join conn task")
             .expect("client connection error");
     };
@@ -2564,6 +2549,95 @@ async fn send_reset_pending_open_then_max_concurrent_streams_zero() {
             .await
             .expect("client hung after max→0 with reset pending_open")
             .expect("client connection error");
+    };
+
+    join(srv, client).await;
+}
+
+
+
+/// Stream queued under max>0, then max drops to 0 before open: ResponseFuture
+/// must resolve with an error (REFUSED_STREAM), not hang.
+#[tokio::test]
+async fn pending_open_refused_when_max_drops_to_zero() {
+    use std::task::Poll;
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+    let (queued_tx, queued_rx) = oneshot::channel();
+    let (max0_tx, max0_rx) = oneshot::channel();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(2))
+            .await;
+        assert_default_settings!(settings);
+
+        queued_rx.await.unwrap();
+        srv.send_frame(frames::settings().max_concurrent_streams(0))
+            .await;
+        max0_tx.send(()).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match srv.next().await {
+                    None => return,
+                    Some(Ok(frame::Frame::Settings(s))) if s.is_ack() => continue,
+                    Some(Ok(frame::Frame::GoAway(_))) => {
+                        srv.recv_eof().await;
+                        return;
+                    }
+                    Some(Ok(frame::Frame::Headers(_))) | Some(Ok(frame::Frame::Reset(_))) => {
+                        continue;
+                    }
+                    other => panic!("unexpected frame: {:?}", other),
+                }
+            }
+        })
+        .await
+        .expect("server settle timeout");
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 2 {
+                let _ = futures::future::poll_fn(|cx| match Pin::new(&mut conn).poll(cx) {
+                    Poll::Ready(r) => Poll::Ready(r),
+                    Poll::Pending => Poll::Ready(Ok(())),
+                })
+                .await;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max=2");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        // Do not drive conn: stream stays pending_open.
+        let (resp, _send) = client.send_request(request, true).unwrap();
+        queued_tx.send(()).unwrap();
+        max0_rx.await.unwrap();
+
+        // Drive so max=0 is applied and pending_open is aborted.
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            conn.drive(resp).await
+        })
+        .await
+        .expect("ResponseFuture hung after max→0");
+
+        let err = result.expect_err("expected stream error after max→0");
+        assert_eq!(err.reason(), Some(Reason::REFUSED_STREAM));
+
+        drop(client);
+        let _ = tokio::time::timeout(Duration::from_millis(200), &mut conn).await;
     };
 
     join(srv, client).await;
