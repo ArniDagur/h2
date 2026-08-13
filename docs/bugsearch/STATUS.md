@@ -7,10 +7,9 @@
 No new high-signal bug this fire (hang/FC/cancel/wakeup).
 
 ## Last actions
-1. Peer RST reclaim: `handle_error` uses `task=None`, but RST is processed on the connection poll loop so `poll_complete` flushes reassigned `pending_send` (not F76).
-2. `poll_accept` after `poll_closed` Ready drops `pending_accept` (existing TODO / not a waiter hang; peer sees close).
-3. Mid-connection `max_frame_size` has no public setter; builder size is applied at handshake (no F10-class race).
-4. Placeholder ignore `stream_close_by_recv_reset_frame_releases_capacity` is unimplemented, not a failing regression.
+1. `set_initial_window_size` / `enable_connect_protocol` queue SETTINGS without an explicit wake — they take `&mut Connection`, so the next `poll`/`poll_closed` runs `poll_ready` and writes the frame (not F76).
+2. Server HEADERS on a skipped id (`id < next_stream_id`) is connection PROTOCOL_ERROR (implicit idle close / reuse). Match typical Go/nghttp2, not stream STREAM_CLOSED.
+3. `release_capacity` still wakes `actions.task` when unclaimed crosses the WU threshold.
 
 ## Next recommended step
 1. Package PRs for F3–F87.

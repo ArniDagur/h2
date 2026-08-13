@@ -109,6 +109,8 @@
 - `poll_accept`: `poll_closed` Ready → `None` without draining `pending_accept` (TODO). Connection is already closed; no parked accept waiter beyond that Ready. #30 is the related maintainer-punted reset-in-queue case.
 - No mid-connection MAX_FRAME_SIZE API; builder applies `set_max_recv_frame_size` at handshake (ACK path still updates). Not an F10-style race.
 - Ignored empty tests (`stream_close_by_recv_reset_frame_releases_capacity`, `recv_window_update_causes_overflow`, `accept_with_pending_connections_after_socket_close`) are stubs, not failing cases.
+- Mid-connection `set_initial_window_size` / `enable_connect_protocol` only set `Local::ToSend` (no `actions.task` wake). Both require `&mut Connection` on the polled object, so the next `poll_ready` emits SETTINGS. Contrast with `PingPong::send_ping`, which has a split handle and must wake `ping_task`.
+- Server HEADERS on skipped stream id: `Recv::open` GOAWAYs PROTOCOL_ERROR when `id < next_stream_id`. RFC 5.1.1 implicit close of unused lower ids; reuse is a connection error in Go/nghttp2. Client forgotten-stream path (response after local RST) is STREAM_CLOSED only.
 
 ## High priority next
 1. Package PRs for F3–F87.

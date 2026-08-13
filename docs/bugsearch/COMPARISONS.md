@@ -307,6 +307,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 ## Planned comparisons
 - Residual #848 API design.
 
+### HEADERS on a skipped (implicitly closed) stream id
+- **RFC 9113 §5.1.1:** first use of a new id implicitly closes unused lower idle ids; ids are not reused.
+- **Rust h2 (server):** `Recv::open` treats `id < next_stream_id` as connection PROTOCOL_ERROR.
+- **Verdict:** connection error for reuse/skip-then-use matches typical Go/nghttp2; not a fix-worthy stream-error gap. Client response-after-local-RST already STREAM_CLOSED.
+
 ### WINDOW_UPDATE increment 0
 - **RFC 9113 §6.9.1:** increment 0 on stream 0 is a connection PROTOCOL_ERROR; on a stream it MAY be a stream PROTOCOL_ERROR.
 - **Rust h2:** `WindowUpdate::load` rejects increment 0 for any stream id → connection error.
