@@ -614,6 +614,16 @@ impl Pseudo {
         }
     }
 
+    /// True when no pseudo-header fields are set (valid for trailer blocks).
+    pub(crate) fn is_none(&self) -> bool {
+        self.method.is_none()
+            && self.scheme.is_none()
+            && self.authority.is_none()
+            && self.path.is_none()
+            && self.protocol.is_none()
+            && self.status.is_none()
+    }
+
     #[cfg(feature = "unstable")]
     pub fn set_status(&mut self, value: StatusCode) {
         self.status = Some(value);

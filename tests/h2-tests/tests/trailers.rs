@@ -262,3 +262,53 @@ async fn send_trailers_rejects_connection_specific_headers() {
 
     join(srv, client).await;
 }
+
+/// RFC 9113 §8.1: trailers must not include pseudo-header fields.
+/// Pre-fix h2 decoded `:status` into Pseudo then `into_fields()` dropped it
+/// silently, accepting a malformed trailer block.
+#[tokio::test]
+async fn recv_trailers_with_pseudo_header_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // Initial response headers (no EOS) then a "trailer" HEADERS+EOS that
+        // illegally includes :status.
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("response headers");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let mut body = resp.into_body();
+        // Malformed trailers become a stream reset on the next body poll.
+        let err = conn
+            .drive(body.data())
+            .await
+            .expect("expected Some(Err) for stream reset")
+            .expect_err("pseudo in trailers must error");
+        assert!(err.is_reset(), "expected stream reset, got {err}");
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(body);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}

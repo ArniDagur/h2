@@ -465,13 +465,28 @@ impl Recv {
         frame: frame::Headers,
         stream: &mut store::Ptr,
     ) -> Result<(), Error> {
-        // Transition the state
-        stream.state.recv_close()?;
+        // Validate before recv_close: if the stream is already EndStream,
+        // send_reset would no-op (closed + empty queue) and the peer would
+        // never see RST_STREAM for a malformed trailer block.
+
+        // RFC 9113 §8.1: trailer section fields MUST NOT include
+        // pseudo-header fields. load_hpack still accepts them into `Pseudo`
+        // (it does not know trailer context); reject here before dropping.
+        if !frame.pseudo().is_none() {
+            proto_err!(
+                stream: "recv_trailers: pseudo-headers in trailers; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR));
+        }
 
         if stream.ensure_content_length_zero().is_err() {
             proto_err!(stream: "recv_trailers: content-length is not zero; stream={:?};",  stream.id);
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR));
         }
+
+        // Transition the state
+        stream.state.recv_close()?;
 
         let trailers = frame.into_fields();
 
