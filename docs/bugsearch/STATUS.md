@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-SETTINGS decrease + `poll_capacity` hang after reclaim — fixed as F6.
+Push promise missed wakeup when parent response ends — fixed as F7 (#811).
 
 ## Last actions
-1. Multi-stream SETTINGS_INITIAL_WINDOW_SIZE decrease: reclaim of connection capacity from stream A to waiting stream B works (windows/available updated correctly).
-2. Confirmed **F6**: after SETTINGS shrinks assignment, `poll_capacity` required `send_capacity_inc` and hung forever even when `assigned >= requested` and `capacity() > 0` (stream B never woke to send reclaimed capacity).
-3. Fix: if usable capacity > 0 and reservation fully assigned, return `Ready` without a fresh increase flag; still `Pending` when more was requested. Regression `settings_decrease_reclaims_conn_capacity_to_waiting_stream`. Full `flow_control` suite green (50 pass / 4 ignored).
+1. Investigated open issue #811: after draining PUSH_PROMISEs, `push_promise()` parks on `push_task`; parent response HEADERS/DATA EOS only called `notify_recv`, not `notify_push`.
+2. Confirmed **F7** with wakened regression (plain `timeout` hides the bug by re-polling on timer fire).
+3. Fix: `notify_push()` from `recv_headers`, end-stream `recv_data`, and `recv_trailers`. Test `push_promises_stream_ends_when_parent_response_finishes`.
 
 ## Next recommended step
-1. Package PRs for F3–F6.
-2. Or remaining shared-waker edge `poll_capacity` vs `poll_reset` (low practical risk).
-3. Or `dec_send_window` underflow TODO / `unclaimed_capacity` negative edges.
+1. Package PRs for F3–F7.
+2. Or `dec_send_window` underflow / `unclaimed_capacity` negative edges.
+3. Or cloned `SendRequest` backpressure (#848 design note).
 
 ## Blockers
 None.

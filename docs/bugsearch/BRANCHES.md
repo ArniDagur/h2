@@ -10,6 +10,7 @@
 | `fix/recv-stream-error-not-sticky` | F4 |
 | `fix/pending-open-send-task-waker` | F5 |
 | `fix/poll-capacity-after-settings-reclaim` | F6 |
+| `fix/push-promise-wake-on-parent-end` | F7 |
 
 ## experimental contains
-F1–F6, I1–I2, deadlock stress test, docs.
+F1–F7, I1–I2, deadlock stress test, docs.
