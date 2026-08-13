@@ -308,6 +308,12 @@
 - **Fix branch:** `fix/poll-informational-after-final-none`
 - **Change:** Non-1xx queue head → `Ready(None)`; empty queue + `!is_recv_headers` → `Ready(None)`.
 
+### F55 — Server SETTINGS_ENABLE_PUSH = 1 accepted
+- **Severity:** Medium (protocol): RFC 9113 §6.5.2: a server MUST NOT send `SETTINGS_ENABLE_PUSH` with value 1; the peer must treat a violation as a connection error PROTOCOL_ERROR. Client `apply_remote_settings` previously set `is_push_enabled` from any 0/1 value without checking role.
+- **Evidence:** After handshake, server SETTINGS with ENABLE_PUSH=1 → post-fix client GOAWAY PROTOCOL_ERROR (after SETTINGS_ACK, which is written before apply). Client ENABLE_PUSH still legal when we are the server. Regression `server_enable_push_one_is_connection_error`.
+- **Fix branch:** `fix/reject-server-enable-push-one`
+- **Change:** On remote SETTINGS, if `!counts.peer().is_server()` and push enabled → library GOAWAY PROTOCOL_ERROR.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

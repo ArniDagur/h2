@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` @ `65c5e10`
+**Branch tip:** `experimental/bugsearch` @ `8b75b59`
 
 ## Current focus
-F54: `poll_informational` hang after final response (DATA at queue head).
+F55: server SETTINGS_ENABLE_PUSH = 1 accepted by client.
 
 ## Last actions
-1. Confirmed **F54**: after final response headers consumed, `poll_informational` saw DATA, pushed it back, fell through to `ensure_recv_open` → `Pending` forever while body half open.
-2. Fix: non-1xx queue head → `Ready(None)`; also `Ready(None)` when not `is_recv_headers`.
-3. Regression: `poll_informational_after_final_response_is_none`.
+1. Confirmed **F55**: client applied remote SETTINGS with ENABLE_PUSH=1 (RFC 9113 §6.5.2: server MUST NOT send value 1 → connection PROTOCOL_ERROR).
+2. Fix: in `Send::apply_remote_settings`, if client and `is_push_enabled()==Some(true)` → GOAWAY PROTOCOL_ERROR.
+3. Regression: `server_enable_push_one_is_connection_error`.
 
 ## Next recommended step
-1. Package PRs for F3–F54.
+1. Package PRs for F3–F55.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup / protocol hunt.
+3. Further FC/wakeup / protocol hunt (`reserve_capacity` truncation residual).
 
 ## Blockers
 None.

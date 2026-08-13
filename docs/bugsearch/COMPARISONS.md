@@ -143,5 +143,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F52):** set `is_connect` on request accept; reject CL on 2xx `send_response`.
 - **Verdict:** F51+F52 complete CONNECT CL rules for client receive, client/server request, and server 2xx generate; extended CONNECT unchanged.
 
+### SETTINGS_ENABLE_PUSH from server
+- **RFC 9113 §6.5.2:** server MUST NOT send ENABLE_PUSH = 1; only 0 or omit. Value other than 0/1 is already PROTOCOL_ERROR at frame load.
+- **Rust h2 (pre-F55):** client applied ENABLE_PUSH=1 from server without error.
+- **Rust h2 (F55):** client GOAWAY PROTOCOL_ERROR when applying that setting.
+- **Verdict:** F55 enforces server-role prohibition on ENABLE_PUSH=1.
+
 ## Planned comparisons
 - Residual #848 API design.
