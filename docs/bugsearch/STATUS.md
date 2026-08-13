@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` @ `2bd46c8`
+**Branch tip:** `experimental/bugsearch` @ `3fefdf3`
 
 ## Current focus
-F48: `send_informational` after final `send_response` still queued 1xx.
+F49: outbound Content-Length on 1xx/204 (and non-zero 205).
 
 ## Last actions
-1. Confirmed **F48**: docs promise error after final response, but `send_interim_informational_headers` ignored send-half state and queued 1xx (even on Closed after EOS).
-2. Fix: `State::is_send_informational_allowed` (local AwaitingHeaders / ReservedLocal); reject → `UserError::UnexpectedFrameType`.
-3. Regression: `send_informational_after_final_response_is_user_error`.
+1. Confirmed **F49**: `send_response(204)` / `send_informational(100)` accepted `Content-Length` (RFC 9110 §8.6 MUST NOT); 205 with non-zero CL also accepted.
+2. Fix: reject → `UserError::MalformedHeaders`; 304 still allows CL; 205 allows only CL:0.
+3. Regressions: `send_response_rejects_content_length_on_no_content`, `send_informational_rejects_content_length`.
 
 ## Next recommended step
-1. Package PRs for F3–F48.
+1. Package PRs for F3–F49.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup / protocol hunt.
 

@@ -119,5 +119,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F48):** reject when local half is past AwaitingHeaders.
 - **Verdict:** F46+F48 align generate path with interim-before-final semantics and documented API.
 
+### Content-Length on 1xx / 204 / 205 generate path
+- **RFC 9110 §8.6:** server MUST NOT send Content-Length on 1xx or 204; 205 empty content; 304 MAY include CL.
+- **RFC 9113 §8.1.1:** no-payload responses *may* carry non-zero CL with no DATA (receive resilience for 204/304).
+- **Rust h2 (F49):** generate rejects CL on 1xx/204 and non-zero CL on 205; receive still allows peer CL on 204/304 (existing exception).
+- **Verdict:** F49 is sender MUST NOT enforcement; asymmetric with receive by design (interop vs self-generation).
+
 ## Planned comparisons
 - Residual #848 API design.

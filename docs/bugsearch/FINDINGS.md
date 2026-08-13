@@ -272,6 +272,12 @@
 - **Fix branch:** `fix/reject-informational-after-final`
 - **Change:** `State::is_send_informational_allowed` (Open/HalfClosedRemote with local AwaitingHeaders, or ReservedLocal); reject otherwise before queue.
 
+### F49 — Outbound Content-Length on 1xx/204 and non-zero 205
+- **Severity:** Medium (protocol / API): RFC 9110 §8.6: a server MUST NOT send `Content-Length` on 1xx or 204. 205 requires an empty content section (non-zero CL is malformed). 304 MAY include CL for the selected representation. Pre-fix, `send_response` / `send_informational` forwarded user CL fields onto the wire.
+- **Evidence:** `send_response(204 + CL:5)` and `send_informational(100 + CL:0)` pre-fix Ok; post-fix `UserError::MalformedHeaders`. 205 with CL:1 rejected; plain 204 / 100 still Ok. Regressions: `send_response_rejects_content_length_on_no_content`, `send_informational_rejects_content_length`.
+- **Fix branch:** `fix/reject-outbound-content-length-no-content`
+- **Change:** Reject CL on 204 and on all 1xx informational frames; reject non-zero CL on 205 (`is_content_length_zero` helper). Receive path still allows peer CL on 204/304 per RFC 9113 §8.1.1 (F43 exception).
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
