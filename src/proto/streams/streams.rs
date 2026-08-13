@@ -262,6 +262,19 @@ where
         me.actions.recv.apply_local_settings(frame, &mut me.store)
     }
 
+    /// Apply a local INITIAL_WINDOW_SIZE *increase* immediately when SETTINGS
+    /// is written. No-op if `target` is not greater than the current init size.
+    pub fn apply_local_settings_window_increase(
+        &mut self,
+        target: WindowSize,
+    ) -> Result<(), Error> {
+        let mut me = self.inner.lock().unwrap();
+        let me = &mut *me;
+        me.actions
+            .recv
+            .apply_local_window_increase(target, &mut me.store)
+    }
+
     pub fn send_request(
         &mut self,
         mut request: Request<()>,

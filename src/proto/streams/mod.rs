@@ -70,6 +70,13 @@ pub struct Config {
     /// Initial window size of remote initiated streams
     pub remote_init_window_sz: WindowSize,
 
+    /// Local receive INITIAL_WINDOW_SIZE advertised in our SETTINGS.
+    ///
+    /// When larger than the spec default, recv windows start at this value so
+    /// the peer can use the expanded window as soon as it processes SETTINGS
+    /// (before we process SETTINGS_ACK). Decreases still apply only on ACK.
+    pub local_init_window_sz: WindowSize,
+
     /// Maximum number of remote initiated streams
     pub remote_max_initiated: Option<usize>,
 

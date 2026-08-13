@@ -118,6 +118,10 @@ where
                 local_reset_max: config.reset_stream_max,
                 remote_reset_max: config.remote_reset_stream_max,
                 remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+                local_init_window_sz: config
+                    .settings
+                    .initial_window_size()
+                    .unwrap_or(DEFAULT_INITIAL_WINDOW_SIZE),
                 remote_max_initiated: config
                     .settings
                     .max_concurrent_streams()

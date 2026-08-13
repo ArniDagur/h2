@@ -93,8 +93,14 @@ impl Recv {
             .expect("invalid initial remote window size");
         flow.assign_capacity(DEFAULT_INITIAL_WINDOW_SIZE).unwrap();
 
+        // Start at the advertised local initial window when it is larger than
+        // the default so peers may send under the new size as soon as they
+        // process our SETTINGS (before we process SETTINGS_ACK). Decreases are
+        // applied only when the ACK arrives (see apply_local_settings).
+        let init_window_sz = config.local_init_window_sz.max(DEFAULT_INITIAL_WINDOW_SIZE);
+
         Recv {
-            init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            init_window_sz,
             flow,
             in_flight_data: 0 as WindowSize,
             next_stream_id: Ok(next_stream_id.into()),
@@ -611,61 +617,89 @@ impl Recv {
         }
 
         if let Some(target) = settings.initial_window_size() {
-            let old_sz = self.init_window_sz;
-            self.init_window_sz = target;
+            // Increases may already have been applied when SETTINGS was sent
+            // (`apply_local_window_increase`); then this is a no-op (Equal).
+            // Decreases apply only here on SETTINGS_ACK.
+            self.apply_local_window_size(target, store)?;
+        }
 
-            tracing::trace!("update_initial_window_size; new={}; old={}", target, old_sz,);
+        Ok(())
+    }
 
-            // Per RFC 7540 §6.9.2:
-            //
-            // In addition to changing the flow-control window for streams that are
-            // not yet active, a SETTINGS frame can alter the initial flow-control
-            // window size for streams with active flow-control windows (that is,
-            // streams in the "open" or "half-closed (remote)" state). When the
-            // value of SETTINGS_INITIAL_WINDOW_SIZE changes, a receiver MUST adjust
-            // the size of all stream flow-control windows that it maintains by the
-            // difference between the new value and the old value.
-            //
-            // A change to `SETTINGS_INITIAL_WINDOW_SIZE` can cause the available
-            // space in a flow-control window to become negative. A sender MUST
-            // track the negative flow-control window and MUST NOT send new
-            // flow-controlled frames until it receives WINDOW_UPDATE frames that
-            // cause the flow-control window to become positive.
+    /// Expand local recv windows when advertising a larger INITIAL_WINDOW_SIZE.
+    ///
+    /// Called when the SETTINGS frame is written so peers may send under the
+    /// new window before we process SETTINGS_ACK.
+    pub(crate) fn apply_local_window_increase(
+        &mut self,
+        target: WindowSize,
+        store: &mut Store,
+    ) -> Result<(), proto::Error> {
+        if target > self.init_window_sz {
+            self.apply_local_window_size(target, store)?;
+        }
+        Ok(())
+    }
 
-            match target.cmp(&old_sz) {
-                Ordering::Less => {
-                    // We must decrease the (local) window on every open stream.
-                    let dec = old_sz - target;
-                    tracing::trace!("decrementing all windows; dec={}", dec);
+    fn apply_local_window_size(
+        &mut self,
+        target: WindowSize,
+        store: &mut Store,
+    ) -> Result<(), proto::Error> {
+        let old_sz = self.init_window_sz;
+        self.init_window_sz = target;
 
-                    store.try_for_each(|mut stream| {
-                        stream
-                            .recv_flow
-                            .dec_recv_window(dec)
-                            .map_err(proto::Error::library_go_away)?;
-                        Ok::<_, proto::Error>(())
-                    })?;
-                }
-                Ordering::Greater => {
-                    // We must increase the (local) window on every open stream.
-                    let inc = target - old_sz;
-                    tracing::trace!("incrementing all windows; inc={}", inc);
-                    store.try_for_each(|mut stream| {
-                        // XXX: Shouldn't the peer have already noticed our
-                        // overflow and sent us a GOAWAY?
-                        stream
-                            .recv_flow
-                            .inc_window(inc)
-                            .map_err(proto::Error::library_go_away)?;
-                        stream
-                            .recv_flow
-                            .assign_capacity(inc)
-                            .map_err(proto::Error::library_go_away)?;
-                        Ok::<_, proto::Error>(())
-                    })?;
-                }
-                Ordering::Equal => (),
+        tracing::trace!("update_initial_window_size; new={}; old={}", target, old_sz,);
+
+        // Per RFC 7540 §6.9.2:
+        //
+        // In addition to changing the flow-control window for streams that are
+        // not yet active, a SETTINGS frame can alter the initial flow-control
+        // window size for streams with active flow-control windows (that is,
+        // streams in the "open" or "half-closed (remote)" state). When the
+        // value of SETTINGS_INITIAL_WINDOW_SIZE changes, a receiver MUST adjust
+        // the size of all stream flow-control windows that it maintains by the
+        // difference between the new value and the old value.
+        //
+        // A change to `SETTINGS_INITIAL_WINDOW_SIZE` can cause the available
+        // space in a flow-control window to become negative. A sender MUST
+        // track the negative flow-control window and MUST NOT send new
+        // flow-controlled frames until it receives WINDOW_UPDATE frames that
+        // cause the flow-control window to become positive.
+
+        match target.cmp(&old_sz) {
+            Ordering::Less => {
+                // We must decrease the (local) window on every open stream.
+                let dec = old_sz - target;
+                tracing::trace!("decrementing all windows; dec={}", dec);
+
+                store.try_for_each(|mut stream| {
+                    stream
+                        .recv_flow
+                        .dec_recv_window(dec)
+                        .map_err(proto::Error::library_go_away)?;
+                    Ok::<_, proto::Error>(())
+                })?;
             }
+            Ordering::Greater => {
+                // We must increase the (local) window on every open stream.
+                let inc = target - old_sz;
+                tracing::trace!("incrementing all windows; inc={}", inc);
+                store.try_for_each(|mut stream| {
+                    // XXX: Shouldn't the peer have already noticed our
+                    // overflow and sent us a GOAWAY?
+                    stream
+                        .recv_flow
+                        .inc_window(inc)
+                        .map_err(proto::Error::library_go_away)?;
+                    stream
+                        .recv_flow
+                        .assign_capacity(inc)
+                        .map_err(proto::Error::library_go_away)?;
+                    Ok::<_, proto::Error>(())
+                })?;
+            }
+            Ordering::Equal => (),
         }
 
         Ok(())
@@ -1376,6 +1410,7 @@ mod tests {
             local_reset_max: 0,
             remote_reset_max: 0,
             remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            local_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
             remote_max_initiated: None,
             local_max_error_reset_streams: None,
         };
@@ -1433,6 +1468,7 @@ mod tests {
             local_reset_max: 0,
             remote_reset_max: 0,
             remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            local_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
             remote_max_initiated: None,
             local_max_error_reset_streams: None,
         };

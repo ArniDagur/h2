@@ -1902,6 +1902,88 @@ async fn client_update_initial_window_size() {
     join(srv, client).await;
 }
 
+/// After locally advertising a larger SETTINGS_INITIAL_WINDOW_SIZE, the peer
+/// may send DATA under the new stream window as soon as it processes SETTINGS
+/// — which can arrive *before* our SETTINGS_ACK is processed.
+///
+/// If we only expand recv windows on ACK, that early DATA is rejected as a
+/// stream FLOW_CONTROL_ERROR even though the peer is behaving correctly.
+#[tokio::test]
+async fn initial_window_increase_accepts_data_before_settings_ack() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let window_size = frame::DEFAULT_INITIAL_WINDOW_SIZE * 2;
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        // Connection window must also allow the extra DATA (orthogonal to the
+        // stream INITIAL_WINDOW_SIZE race under test).
+        srv.recv_frame(frames::window_update(0, window_size - 65_535))
+            .await;
+
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        // Exhaust most of the default stream window (3 * 16384 = 49152 of 65535).
+        srv.send_frame(frames::data(1, vec![b'a'; 16_384])).await;
+        srv.send_frame(frames::data(1, vec![b'b'; 16_384])).await;
+        srv.send_frame(frames::data(1, vec![b'c'; 16_384])).await;
+
+        // Peer sees the larger INITIAL_WINDOW_SIZE and may send under the new
+        // window immediately, *before* ACKing.
+        srv.recv_frame(frames::settings().initial_window_size(window_size))
+            .await;
+        // DATA legal only under the expanded stream window (old remaining ≈ 16383).
+        srv.send_frame(frames::data(1, vec![b'd'; 16_384])).await;
+        srv.send_frame(frames::settings_ack()).await;
+        srv.send_frame(frames::data(1, vec![b'e'; 16_384]).eos())
+            .await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        conn.set_target_window_size(window_size);
+
+        async fn data(body: &mut h2::RecvStream, expect: &str) {
+            let buf = body.data().await.expect(expect).expect(expect);
+            assert_eq!(buf.len(), 16_384, "{}", expect);
+        }
+
+        let res_fut = client.get("https://example.com/");
+        let body = conn
+            .drive(async move {
+                let resp = res_fut.await.expect("response");
+                let mut body = resp.into_body();
+                data(&mut body, "data1").await;
+                data(&mut body, "data2").await;
+                data(&mut body, "data3").await;
+                body
+            })
+            .await;
+
+        conn.set_initial_window_size(window_size).expect("update");
+
+        let f = async move {
+            let mut body = body;
+            // This chunk is sent by the peer before SETTINGS_ACK; it must still
+            // be accepted once we advertised the larger initial window.
+            data(&mut body, "data4-before-ack").await;
+            data(&mut body, "data5").await;
+            assert!(body.data().await.is_none(), "eos");
+        };
+
+        join(async move { conn.await.expect("client") }, f).await;
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn client_decrease_initial_window_size() {
     h2_support::trace_init!();

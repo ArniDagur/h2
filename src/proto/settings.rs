@@ -158,6 +158,14 @@ impl Settings {
                     .expect("invalid settings frame");
                 tracing::trace!("local settings sent; waiting for ack: {:?}", settings);
 
+                // Expand local recv windows when INITIAL_WINDOW_SIZE increases
+                // *as we send* SETTINGS. The peer may use the new window as soon
+                // as it processes the frame, which can race ahead of SETTINGS_ACK.
+                // Decreases still apply only on ACK (peer must shrink first).
+                if let Some(target) = settings.initial_window_size() {
+                    streams.apply_local_settings_window_increase(target)?;
+                }
+
                 self.local = Local::WaitingAck(settings.clone());
             }
             Local::WaitingAck(..) | Local::Synced => {}
