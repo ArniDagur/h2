@@ -3149,6 +3149,49 @@ async fn response_headers_missing_status_is_stream_error() {
 
 /// RFC 9110 / 9113: multiple Content-Length values that differ make the
 /// message malformed. Pre-fix only read HeaderMap::get (first value).
+
+/// RFC 9110: 204/205/304 responses are terminated by the header section;
+/// they cannot include content or trailers. HEADERS without END_STREAM is
+/// malformed (pre-fix then accepted DATA as a body).
+#[tokio::test]
+async fn no_content_without_end_stream_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // 204 without END_STREAM — body must not follow.
+        srv.send_frame(frames::headers(1).response(204)).await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let err = conn
+            .drive(resp)
+            .await
+            .expect_err("204 without END_STREAM must error");
+        assert!(err.is_reset(), "expected stream reset, got {err}");
+        assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn mismatched_content_length_headers_is_stream_error() {
     h2_support::trace_init!();

@@ -208,6 +208,22 @@ impl Recv {
             return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
         }
 
+        // RFC 9110: 204/205/304 responses are terminated by the header section
+        // and cannot include content or trailers. Without END_STREAM the peer
+        // could send DATA as a body (accepted pre-fix). Reject before recv_open.
+        if !counts.peer().is_server() {
+            if let Some(status) = frame.pseudo().status {
+                if matches!(status.as_u16(), 204 | 205 | 304) && !frame.is_end_stream() {
+                    proto_err!(
+                        stream: "recv_headers: {:?} response without END_STREAM; stream={:?}",
+                        status,
+                        stream.id
+                    );
+                    return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
+                }
+            }
+        }
+
         // RFC 9113 §8.3.2: all HTTP/2 responses MUST include `:status`.
         // Check before recv_open: EOS on the request half would close the stream
         // and make send_reset a no-op (closed + empty queue).
