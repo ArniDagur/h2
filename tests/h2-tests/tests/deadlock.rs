@@ -51,9 +51,11 @@ async fn logical_deadlock_max_concurrent_streams_stress() {
                 // Backpressure when pending_open is full for this SendRequest handle.
                 client = client.ready().await.expect("client ready");
 
+                // Absolute URI so :authority is present. After F62 the server
+                // rejects scheme+path-only requests with RST PROTOCOL_ERROR.
                 let request = Request::builder()
                     .method(Method::POST)
-                    .uri("/")
+                    .uri("http://localhost/")
                     .body(())
                     .unwrap();
 
