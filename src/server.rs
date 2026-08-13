@@ -1781,6 +1781,11 @@ impl proto::Peer for Peer {
         } else if let Some(host) = fields.get(http::header::HOST) {
             // Origin-form HTTP/1.1→H2 may omit :authority and keep Host.
             // nghttp2 requires :authority or Host; use Host for the request URI.
+            // RFC 9110 §4.3.1 / §7.2: Host is uri-host [ ":" port ] — no userinfo.
+            // Same prohibition as :authority (F44); http::Authority accepts user@host.
+            if host.as_bytes().contains(&b'@') {
+                malformed!("malformed headers: userinfo in Host ({:?})", host);
+            }
             let host_bytes = bytes::Bytes::copy_from_slice(host.as_bytes());
             let maybe_authority = uri::Authority::from_maybe_shared(host_bytes);
             let auth = maybe_authority.or_else(|why| {
