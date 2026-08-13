@@ -1326,6 +1326,16 @@ impl<B> StreamRef<B> {
             return Err(UserError::UnexpectedFrameType);
         }
 
+        // RFC 9110: 204/205/304 are terminated by the header section — no body
+        // or trailers. end_of_stream=false would emit HEADERS without END_STREAM
+        // and leave the send half open for DATA (rejected by peers via F43).
+        if !end_of_stream {
+            match response.status().as_u16() {
+                204 | 205 | 304 => return Err(UserError::UnexpectedFrameType),
+                _ => {}
+            }
+        }
+
         // Clear before taking lock, incase extensions contain a StreamRef.
         response.extensions_mut().clear();
         let mut me = self.opaque.inner.lock().unwrap();
