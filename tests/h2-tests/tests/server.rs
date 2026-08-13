@@ -639,6 +639,82 @@ async fn drop_pushed_stream_before_response_sends_reset() {
     join(client, srv).await;
 }
 
+/// Invalid `push_request` must not burn a promised stream id (F21 residual).
+/// Pre-fix: convert ran after `reserve_local`, so a rejected push advanced
+/// the id space and a later good push used stream 4 instead of 2.
+#[tokio::test]
+async fn push_request_validation_error_does_not_burn_stream_id() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        // First successful push must be promised stream 2 (not 4).
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/style.css"),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(2).response(200).eos())
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        // Not safe-and-cacheable → convert_push_message fails.
+        let bad = http::Request::builder()
+            .method("POST")
+            .uri("https://example.com/upload")
+            .body(())
+            .unwrap();
+        stream
+            .push_request(bad)
+            .expect_err("unsafe method must be UserError");
+
+        // Authority without scheme (HTTP/2 push always requires :scheme).
+        let bad = http::Request::builder()
+            .method("GET")
+            .uri("example.com:8080")
+            .body(())
+            .unwrap();
+        stream
+            .push_request(bad)
+            .expect_err("missing scheme must be UserError");
+
+        let good = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        let mut pushed = stream.push_request(good).expect("valid push");
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        pushed.send_response(rsp, true).unwrap();
+
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        stream.send_response(rsp, true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9113 §6.6: PUSH_PROMISE only on open / half-closed (remote) parents.
 #[tokio::test]
 async fn push_request_after_response_eos_is_user_error() {

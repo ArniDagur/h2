@@ -1348,15 +1348,23 @@ impl<B> StreamRef<B> {
         let send_buffer = &mut *send_buffer;
 
         // Check parent before allocating a promised stream id / store slot.
-        {
+        let parent_id = {
             let parent = me.store.resolve(self.opaque.key);
             if !parent.state.is_send_push_promise_allowed() {
                 return Err(UserError::UnexpectedFrameType);
             }
-        }
+            parent.id
+        };
 
         let actions = &mut me.actions;
+
+        // Validate / convert before `reserve_local()` so a UserError does not
+        // burn a stream id (same pattern as client `send_request`).
+        let promised_id = actions.send.ensure_next_stream_id()?;
+        let frame =
+            crate::server::Peer::convert_push_message(parent_id, promised_id, request)?;
         let promised_id = actions.send.reserve_local()?;
+        debug_assert_eq!(promised_id, frame.promised_id());
 
         let child_key = {
             let mut child_stream = me.store.insert(
@@ -1374,9 +1382,6 @@ impl<B> StreamRef<B> {
 
         let pushed = {
             let mut stream = me.store.resolve(self.opaque.key);
-
-            let frame = crate::server::Peer::convert_push_message(stream.id, promised_id, request)?;
-
             actions
                 .send
                 .send_push_promise(frame, send_buffer, &mut stream, &mut actions.task)
