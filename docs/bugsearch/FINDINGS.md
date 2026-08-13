@@ -172,6 +172,12 @@
 - **Fix branch:** `fix/reject-pseudo-in-trailers`
 - **Change:** Reject non-empty `Pseudo` (and content-length mismatch) **before** `recv_close` so `send_reset` is not a no-op on already-closed streams; `Pseudo::is_none()`.
 
+### F33 — Informational (1xx) HEADERS with END_STREAM accepted
+- **Severity:** Medium (protocol): Informational responses must not end the message. Pre-fix `recv_open` treated EOS first and half-closed remote, then queued `InformationalHeaders` — client never gets a final response. Go: `"1xx informational response with END_STREAM flag"`.
+- **Evidence:** `100 Continue` with EOS → pre-fix half-closed recv; post-fix `RST_STREAM(PROTOCOL_ERROR)`. Regression `informational_response_with_end_stream_is_stream_error`.
+- **Fix branch:** `fix/reject-informational-end-stream`
+- **Change:** Reject `is_informational() && is_end_stream()` before `recv_open`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

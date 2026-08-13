@@ -36,6 +36,7 @@
 | `fix/no-error-reset-zero-window` | F30 |
 | `fix/poll-reset-after-end-stream` | F31 |
 | `fix/reject-pseudo-in-trailers` | F32 |
+| `fix/reject-informational-end-stream` | F33 |
 
 ## experimental contains
-F1–F32, I1–I2, deadlock stress test, docs.
+F1–F33, I1–I2, deadlock stress test, docs.

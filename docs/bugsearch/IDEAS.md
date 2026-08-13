@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F32 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F33 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -32,10 +32,11 @@
 - InFlightData::Drop FC leak → dismissed (S3 false positive).
 - poll_reset hang after clean EndStream → F31.
 - Pseudo-headers in trailers silently accepted → F32.
+- 1xx informational HEADERS with END_STREAM accepted → F33.
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 
 ## High priority next
-1. Package PRs for F3–F32.
+1. Package PRs for F3–F33.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -48,3 +49,4 @@
 - poll_accept TODO: drop pending_accept when connection already closed (streams cleared on Drop).
 - GOAWAY + pending_open occupancy: already aborted via `is_reset` path; conn_error blocks new streams after remote GOAWAY (not an occupancy leak).
 - F30 residual mid-response NO_ERROR + temporary window 0: wait for peer WU by design (unlike schedule-time window 0 → CANCEL).
+- Cap number of 1xx informational responses per stream (Go `max1xxResponses = 5`) — memory DoS if peer floods 1xx.

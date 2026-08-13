@@ -4,17 +4,18 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F32: pseudo-header fields in received trailers accepted as OK.
+F33: 1xx informational HEADERS with END_STREAM accepted.
 
 ## Last actions
-1. Confirmed **F32**: trailers with `:status` were decoded into `Pseudo` then dropped by `into_fields()` with no stream error (RFC 9113 §8.1).
-2. Fix: reject non-empty Pseudo (and CL mismatch) before `recv_close` so RST is emitted; validation-after-close made `send_reset` a no-op.
-3. Regression: `recv_trailers_with_pseudo_header_is_stream_error`.
+1. Confirmed **F33**: 1xx + END_STREAM half-closed receive then queued InformationalHeaders (malformed per RFC / Go).
+2. Fix: reject before `recv_open` with stream `PROTOCOL_ERROR`.
+3. Regression: `informational_response_with_end_stream_is_stream_error`.
 
 ## Next recommended step
-1. Package PRs for F3–F32.
+1. Package PRs for F3–F33.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup hunt.
+3. Optional: cap number of 1xx responses (Go `max1xxResponses = 5`).
+4. Further FC/wakeup hunt.
 
 ## Blockers
 None.
