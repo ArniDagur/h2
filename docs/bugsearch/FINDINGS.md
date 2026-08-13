@@ -196,6 +196,16 @@
 - **Fix branch:** `fix/reject-response-missing-status`
 - **Change:** Client-side reject missing status before `recv_open`; keep defensive check in `convert_poll_message`.
 
+### F37 — Request missing `:path` / CONNECT missing `:authority` accepted
+- **Severity:** Medium (protocol): RFC 9113 §8.3.1 requires `:path` on all non-CONNECT requests; §8.5 / §8.3.1 require `:authority` on CONNECT (incl. extended CONNECT / RFC 8441). Server `convert_poll_message` only rejected missing path for *extended* CONNECT, and never required CONNECT authority.
+- **Evidence:**
+  - GET with `:method`+`:scheme` only (no authority, no path): scheme dropped without authority; `http::Uri::from_parts` empty parts succeeds → request delivered. Post-fix `RST_STREAM(PROTOCOL_ERROR)`.
+  - GET with authority but no path was already rejected via Uri builder (`path missing`); explicit check now covers both.
+  - CONNECT with only `:method`: delivered pre-fix; post-fix PROTOCOL_ERROR.
+  - Regressions: `reject_request_missing_path_pseudo`, `reject_connect_missing_authority_pseudo`.
+- **Fix branch:** `fix/reject-request-missing-path-authority`
+- **Change:** In `server::Peer::convert_poll_message`, `!is_connect || has_protocol` → require path (same shape as scheme); `is_connect && authority.is_none()` → malformed. Also applies to received PUSH_PROMISE request conversion.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

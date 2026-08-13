@@ -59,5 +59,11 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F36):** stream PROTOCOL_ERROR before `recv_open`.
 - **Verdict:** F36 aligns with Go/RFC 9113 §8.3.2.
 
+### Request missing `:path` / CONNECT missing `:authority`
+- **RFC 9113 §8.3.1 / §8.5:** non-CONNECT MUST include `:path`; CONNECT MUST include `:authority`.
+- **Rust h2 (pre-F37):** missing path only rejected for extended CONNECT; CONNECT without authority accepted; scheme-only GET without path accepted (scheme dropped, empty Uri).
+- **Rust h2 (F37):** explicit PROTOCOL_ERROR in server `convert_poll_message` (also covers PUSH_PROMISE request conversion).
+- **Verdict:** F37 is an h2 protocol correctness fix (malformed request acceptance).
+
 ## Planned comparisons
 - Residual #848 API design.

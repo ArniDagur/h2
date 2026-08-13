@@ -40,6 +40,7 @@
 | `fix/ignore-content-length-on-1xx` | F34 |
 | `fix/cap-recv-informational` | F35 |
 | `fix/reject-response-missing-status` | F36 |
+| `fix/reject-request-missing-path-authority` | F37 |
 
 ## experimental contains
-F1–F36, I1–I2, deadlock stress test, docs.
+F1–F37, I1–I2, deadlock stress test, docs.
