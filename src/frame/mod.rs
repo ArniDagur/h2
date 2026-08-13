@@ -48,7 +48,7 @@ mod stream_id;
 mod util;
 mod window_update;
 
-pub(crate) use self::util::is_valid_scheme;
+pub(crate) use self::util::{header_value_has_leading_trailing_ws, is_valid_scheme};
 
 pub use self::data::Data;
 pub use self::go_away::GoAway;

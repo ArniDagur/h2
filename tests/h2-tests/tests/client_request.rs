@@ -865,6 +865,66 @@ async fn connection_header_does_not_burn_stream_id() {
     join(srv, h2).await;
 }
 
+/// RFC 9113 §8.2.1: outbound field values must not have leading/trailing SP/HTAB.
+#[tokio::test]
+async fn send_request_rejects_header_value_leading_trailing_ws() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.expect("handshake");
+
+        let mut bad = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        bad.headers_mut().insert(
+            "x-a",
+            http::HeaderValue::from_bytes(b" leading").unwrap(),
+        );
+        client
+            .send_request(bad, true)
+            .expect_err("leading whitespace header value must be UserError");
+
+        let mut bad = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        bad.headers_mut().insert(
+            "x-b",
+            http::HeaderValue::from_bytes(b"trailing ").unwrap(),
+        );
+        client
+            .send_request(bad, true)
+            .expect_err("trailing whitespace header value must be UserError");
+
+        let good = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(good, true).expect("stream 1");
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        drop(client);
+        h2.await.expect("h2");
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn host_header_promoted_to_authority_and_stripped() {
     // #876 / RFC 9113 §8.3.1: never emit Host alongside :authority; when the

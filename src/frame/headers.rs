@@ -1003,6 +1003,14 @@ impl HeaderBlock {
                             value
                         );
                         malformed = true;
+                    } else if util::header_value_has_leading_trailing_ws(value.as_bytes()) {
+                        // RFC 9113 §8.2.1 / nghttp2_check_header_value_rfc9113:
+                        // field values MUST NOT have leading or trailing SP/HTAB.
+                        tracing::trace!(
+                            "load_hpack; header value has leading or trailing whitespace; name={:?}",
+                            name
+                        );
+                        malformed = true;
                     } else {
                         reg = true;
 

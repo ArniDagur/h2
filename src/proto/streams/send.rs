@@ -101,6 +101,14 @@ impl Send {
                 }
             }
         }
+
+        // RFC 9113 §8.2.1: field values MUST NOT have leading/trailing SP/HTAB.
+        for value in fields.values() {
+            if frame::header_value_has_leading_trailing_ws(value.as_bytes()) {
+                tracing::debug!("header value has leading or trailing whitespace");
+                return Err(UserError::MalformedHeaders);
+            }
+        }
         Ok(())
     }
 
