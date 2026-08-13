@@ -639,6 +639,70 @@ async fn drop_pushed_stream_before_response_sends_reset() {
     join(client, srv).await;
 }
 
+/// Connection-specific headers / disabled push must not burn a stream id
+/// (F25 residual: those checks ran only in send_push_promise after reserve).
+#[tokio::test]
+async fn push_request_connection_headers_do_not_burn_stream_id() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/ok.css"),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(2).response(200).eos())
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let bad = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/x")
+            .header("connection", "close")
+            .body(())
+            .unwrap();
+        stream
+            .push_request(bad)
+            .expect_err("connection header must be UserError");
+
+        let good = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/ok.css")
+            .body(())
+            .unwrap();
+        let mut pushed = stream.push_request(good).expect("valid push uses id 2");
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        pushed.send_response(rsp, true).unwrap();
+
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        stream.send_response(rsp, true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Invalid `push_request` must not burn a promised stream id (F21 residual).
 /// Pre-fix: convert ran after `reserve_local`, so a rejected push advanced
 /// the id space and a later good push used stream 4 instead of 2.

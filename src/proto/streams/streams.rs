@@ -1358,8 +1358,14 @@ impl<B> StreamRef<B> {
 
         let actions = &mut me.actions;
 
+        // Peer SETTINGS may have disabled push; fail before allocating an id.
+        if !actions.send.is_push_enabled() {
+            return Err(UserError::PeerDisabledServerPush);
+        }
+
         // Validate / convert before `reserve_local()` so a UserError does not
-        // burn a stream id (same pattern as client `send_request`).
+        // burn a stream id (same pattern as client `send_request`). Connection-
+        // specific headers are checked inside convert_push_message.
         let promised_id = actions.send.ensure_next_stream_id()?;
         let frame =
             crate::server::Peer::convert_push_message(parent_id, promised_id, request)?;

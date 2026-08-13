@@ -77,7 +77,11 @@ impl Send {
         Ok(stream_id)
     }
 
-    fn check_headers(fields: &http::HeaderMap) -> Result<(), UserError> {
+    pub(crate) fn is_push_enabled(&self) -> bool {
+        self.is_push_enabled
+    }
+
+    pub(crate) fn check_headers(fields: &http::HeaderMap) -> Result<(), UserError> {
         // 8.1.2.2. Connection-Specific Header Fields
         if fields.contains_key(http::header::CONNECTION)
             || fields.contains_key(http::header::TRANSFER_ENCODING)

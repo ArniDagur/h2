@@ -1612,6 +1612,22 @@ impl Peer {
             return Err(UserError::MissingUriSchemeAndAuthority);
         }
 
+        // Connection-specific fields must be rejected here so `push_request`
+        // can fail before reserve_local (send_push_promise also checks).
+        if headers.contains_key(http::header::CONNECTION)
+            || headers.contains_key(http::header::TRANSFER_ENCODING)
+            || headers.contains_key(http::header::UPGRADE)
+            || headers.contains_key("keep-alive")
+            || headers.contains_key("proxy-connection")
+        {
+            return Err(UserError::MalformedHeaders);
+        }
+        if let Some(te) = headers.get(http::header::TE) {
+            if te != "trailers" {
+                return Err(UserError::MalformedHeaders);
+            }
+        }
+
         Ok(frame::PushPromise::new(
             stream_id,
             promised_id,
