@@ -1,21 +1,22 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (latest commit)
+**Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-Confirm or dismiss open issue #853 (connection capacity deadlock under concurrency).
+Send-side flow-control integrity instrumentation and hunting remaining capacity bugs.
 
 ## Last actions
-1. Ported PR #852–style stress test → `tests/h2-tests/tests/deadlock.rs` (`logical_deadlock_max_concurrent_streams_stress`).
-2. Ran test 5× successfully (50 concurrent tasks × 40 reqs, server `max_concurrent_streams=10`).
-3. Conclusion: **S1/#853 does not reproduce** on current code with correct FC release + `SendRequest::ready()`. Pre-#860 theory (capacity to `pending_open`) is blocked by #860; #930 also helps by releasing conn capacity on `RecvStream` drop.
-4. Original #852 test omitted `release_capacity` / `ready()` — may have been partly a test-harness FC stall.
+1. Added **debug-only send capacity conservation** checks:
+   - `sum(stream.send_flow.available_signed) + conn.available_signed == conn.window_size_signed`
+   - `pending_open` streams must not hold send capacity
+   - Hooks: `buffer_pending` entry/exit, connection WINDOW_UPDATE, SETTINGS initial window change
+2. Ran flow_control, prioritization, stream_states, client_request, deadlock — **all pass** (no conservation violations).
 
 ## Next recommended step
-1. Add debug capacity-conservation asserts (sum stream send `available` + conn `available`) on experimental.
-2. Or investigate S2 sticky `poll_data` after reset / shared `send_task` wakeups.
-3. Or SETTINGS_INITIAL_WINDOW_SIZE decrease + in-flight streams differential vs Go/nghttp2.
+1. Investigate **S2** sticky `poll_data` after reset (#882) — or shared `send_task` multi-waiter wakeups.
+2. Or SETTINGS_INITIAL_WINDOW_SIZE decrease + multi-stream differential vs Go (port a regression).
+3. Or extend conservation checks to **recv-side** (`in_flight_data` vs stream `in_flight_recv_data`).
 
 ## Blockers
 None.
