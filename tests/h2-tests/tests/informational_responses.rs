@@ -307,6 +307,63 @@ async fn client_poll_informational_responses_none() {
     join(srv, client).await;
 }
 
+/// poll_informational after the final response must return None, not hang
+/// when DATA is already queued (body half still open).
+#[tokio::test]
+async fn poll_informational_after_final_response_is_none() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        // Final headers then body DATA (no EOS on headers).
+        srv.send_frame(frames::headers(1).response(StatusCode::OK))
+            .await;
+        srv.send_frame(frames::data(1, b"body").eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (mut response_future, _) = client.send_request(request, true).unwrap();
+
+        // Take the final response first (skips any 1xx; none here).
+        let response = conn
+            .drive(&mut response_future)
+            .await
+            .expect("final response");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // After final headers were consumed, DATA is at the head of pending_recv.
+        // Pre-fix: poll_informational Pending forever while recv half open.
+        let info = tokio::time::timeout(
+            Duration::from_secs(1),
+            poll_fn(|cx| response_future.poll_informational(cx)),
+        )
+        .await
+        .expect("poll_informational hung after final response");
+        assert!(info.is_none(), "expected None after final, got {:?}", info);
+
+        let mut body = response.into_body();
+        let chunk = conn.drive(body.data()).await.expect("body").expect("ok");
+        assert_eq!(chunk.as_ref(), b"body");
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn client_poll_informational_responses() {
     h2_support::trace_init!();

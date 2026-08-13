@@ -536,7 +536,7 @@ impl Recv {
         if let Some(event) = stream.pending_recv.pop_front(&mut self.buffer) {
             match event {
                 Event::Headers(Client(response)) => {
-                    // Final response
+                    // Final response — no more 1xx (they must precede it).
                     stream
                         .pending_recv
                         .push_front(&mut self.buffer, Event::Headers(Client(response)));
@@ -547,15 +547,24 @@ impl Recv {
                     return Poll::Ready(Some(Ok(response)));
                 }
                 other => {
-                    // Not an informational response, put it back at the front
+                    // DATA/trailers/etc. at the head: final response was already
+                    // taken (or no 1xx will follow). Pre-fix fell through to
+                    // ensure_recv_open and Pending forever while the body half
+                    // stayed open.
                     stream.pending_recv.push_front(&mut self.buffer, other);
+                    return Poll::Ready(None);
                 }
             }
         }
 
-        // No informational response available at the front
+        // Queue empty — wait only while more headers can still arrive.
         match stream.state.ensure_recv_open(stream.id) {
             Ok(true) => {
+                // Still awaiting headers (including possible further 1xx).
+                if !stream.state.is_recv_headers() {
+                    // Body/trailers phase: no further 1xx possible.
+                    return Poll::Ready(None);
+                }
                 stream.recv_task = Some(cx.waker().clone());
                 Poll::Pending
             }
