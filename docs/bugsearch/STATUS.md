@@ -4,15 +4,15 @@
 **Branch tip:** `experimental/bugsearch` (latest)
 
 ## Current focus
-F31: `poll_reset` hung after clean EndStream (no RST).
+F32: pseudo-header fields in received trailers accepted as OK.
 
 ## Last actions
-1. Dismissed **S3** (`InFlightData::Drop` FC leak): false positive — Drop means codec still owns/writes the frame; remaining body discard on cancel is intentional.
-2. Confirmed **F31**: `ensure_reason` returned `Ok(None)` for `Closed(EndStream)`, so `poll_reset` Pending forever after a normal exchange.
-3. Fix: `Closed(EndStream)` → `Err(InactiveStreamId)`. Regression `poll_reset_after_clean_eos_must_not_hang`.
+1. Confirmed **F32**: trailers with `:status` were decoded into `Pseudo` then dropped by `into_fields()` with no stream error (RFC 9113 §8.1).
+2. Fix: reject non-empty Pseudo (and CL mismatch) before `recv_close` so RST is emitted; validation-after-close made `send_reset` a no-op.
+3. Regression: `recv_trailers_with_pseudo_header_is_stream_error`.
 
 ## Next recommended step
-1. Package PRs for F3–F31.
+1. Package PRs for F3–F32.
 2. Residual #848 API ready-at-max-open.
 3. Further FC/wakeup hunt.
 

@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F32 — Pseudo-headers in trailers accepted (malformed)
+- **Severity:** Medium (protocol): RFC 9113 §8.1 requires trailer sections not include pseudo-header fields. `load_hpack` still places `:status`/etc. into `Pseudo` (no trailer context). `recv_trailers` called `into_fields()` and dropped Pseudo without error.
+- **Evidence:** Response headers then HEADERS+EOS carrying `:status` — pre-fix accepted (empty trailers); post-fix `RST_STREAM(PROTOCOL_ERROR)`, connection survives. Regression `recv_trailers_with_pseudo_header_is_stream_error`.
+- **Fix branch:** `fix/reject-pseudo-in-trailers`
+- **Change:** Reject non-empty `Pseudo` (and content-length mismatch) **before** `recv_close` so `send_reset` is not a no-op on already-closed streams; `Pseudo::is_none()`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
