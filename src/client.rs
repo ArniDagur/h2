@@ -434,13 +434,15 @@ where
     /// value of its version field. If the version is set to 2.0, then the
     /// request is encoded as per the specification recommends.
     ///
-    /// If the version is set to a lower value, then the request is encoded to
-    /// preserve the characteristics of HTTP 1.1 and lower. Specifically, host
-    /// headers are permitted and the `:authority` pseudo header is not
-    /// included.
+    /// If the version is set to a lower value, then relative-URI requests
+    /// (no scheme/authority) are accepted and given a default `:scheme` of
+    /// `http` for forwarding HTTP/1.1 over HTTP/2.
     ///
-    /// The caller should always set the request's version field to 2.0 unless
-    /// specifically transmitting an HTTP 1.1 request over 2.0.
+    /// In all cases, a regular `Host` header is **not** sent on the wire:
+    /// if present it is promoted to `:authority` and stripped (RFC 9113
+    /// §8.3.1), matching curl/Go. The caller should set the request's version
+    /// field to 2.0 unless specifically transmitting an HTTP 1.1 request over
+    /// 2.0.
     ///
     /// # Examples
     ///
@@ -1633,36 +1635,28 @@ impl Peer {
         // Build the set pseudo header set. All requests will include `method`
         // and `path`.
         let mut pseudo = Pseudo::request(method, uri, protocol);
+        let mut headers = headers;
 
-        if pseudo.scheme.is_none() {
-            // If the scheme is not set, then there are a two options.
+        // Promote Host → :authority and strip Host (RFC 9113 §8.3.1 / #876).
+        // Must run before scheme/authority validation so Host-only HTTP/1.1
+        // style requests (relative path + Host) get a proper :authority.
+        if Pseudo::promote_host_header(&mut headers, &mut pseudo).is_err() {
+            return Err(UserError::MalformedHeaders.into());
+        }
+
+        if !is_connect && pseudo.scheme.is_none() {
+            // Non-CONNECT requests need `:scheme` (RFC 9113 §8.3.1).
             //
-            // 1) Authority is not set. In this case, a request was issued with
-            //    a relative URI. This is permitted **only** when forwarding
-            //    HTTP 1.x requests. If the HTTP version is set to 2.0, then
-            //    this is an error.
+            // HTTP/2-version requests: fail if the URI (and Host promotion)
+            // did not supply a scheme — covers relative paths and authority-
+            // only forms like `example.com:8080`.
             //
-            // 2) Authority is set, then the HTTP method *must* be CONNECT.
-            //    Non-CONNECT requests require `:scheme` (RFC 9113 §8.3.1).
-            //
-            // It is not possible to have a scheme but not an authority set (the
-            // `http` crate does not allow it).
-            //
-            if pseudo.authority.is_none() {
-                if version == Version::HTTP_2 {
-                    return Err(UserError::MissingUriSchemeAndAuthority.into());
-                } else {
-                    // This is acceptable as per the above comment. However,
-                    // HTTP/2 requires that a scheme is set. Since we are
-                    // forwarding an HTTP 1.1 request, the scheme is set to
-                    // "http".
-                    pseudo.set_scheme(uri::Scheme::HTTP);
-                }
-            } else if !is_connect {
-                // Authority without scheme (e.g. `Uri` of `example.com:8080`)
-                // is not valid for GET/OPTIONS/… on HTTP/2.
+            // HTTP/1.x-version requests: default to `http` so intermediaries
+            // can forward relative URIs or Host-only forms over HTTP/2.
+            if version == Version::HTTP_2 {
                 return Err(UserError::MissingUriSchemeAndAuthority.into());
             }
+            pseudo.set_scheme(uri::Scheme::HTTP);
         }
 
         // Create the HEADERS frame

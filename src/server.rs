@@ -1599,7 +1599,13 @@ impl Peer {
             _,
         ) = request.into_parts();
 
-        let pseudo = Pseudo::request(method, uri, None);
+        let mut pseudo = Pseudo::request(method, uri, None);
+        let mut headers = headers;
+
+        // Same Host → :authority normalization as client requests (#876).
+        if Pseudo::promote_host_header(&mut headers, &mut pseudo).is_err() {
+            return Err(UserError::MalformedHeaders);
+        }
 
         // Pushed requests are never CONNECT; `:scheme` is required (RFC 9113 §8.3.1).
         if pseudo.scheme.is_none() {

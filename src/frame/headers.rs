@@ -637,6 +637,23 @@ impl Pseudo {
         self.authority = Some(authority);
     }
 
+    /// Normalize `Host` vs `:authority` for outbound HTTP/2 requests.
+    ///
+    /// RFC 9113 §8.3.1: clients must not send a `Host` field that differs from
+    /// `:authority`, and should use `:authority` instead of `Host`. When the
+    /// user supplies `Host`, promote it to `:authority` (matching curl/Go) and
+    /// always strip the regular `host` header so both are never on the wire.
+    ///
+    /// Returns `Err(())` if `Host` is present but not a valid authority.
+    pub(crate) fn promote_host_header(headers: &mut HeaderMap, pseudo: &mut Pseudo) -> Result<(), ()> {
+        if let Some(host) = headers.remove(header::HOST) {
+            let s = host.to_str().map_err(|_| ())?;
+            let auth = s.parse::<uri::Authority>().map_err(|_| ())?;
+            pseudo.set_authority(BytesStr::from(auth.as_str()));
+        }
+        Ok(())
+    }
+
     /// Whether it has status 1xx
     pub(crate) fn is_informational(&self) -> bool {
         self.status

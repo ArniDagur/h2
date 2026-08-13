@@ -599,9 +599,10 @@ async fn request_with_authority_without_scheme_is_user_error() {
         let (mut client, h2) = client::handshake(io).await.expect("handshake");
 
         // Authority present but no scheme (e.g. `example.com:8080`) is illegal
-        // for non-CONNECT requests: HTTP/2 requires `:scheme` (RFC 9113 §8.3.1).
+        // for HTTP/2-version non-CONNECT requests (RFC 9113 §8.3.1).
         // Pre-fix this silently omitted `:scheme` on the wire.
         let request = Request::builder()
+            .version(Version::HTTP_2)
             .method(Method::GET)
             .uri("example.com:8080")
             .body(())
@@ -613,6 +614,7 @@ async fn request_with_authority_without_scheme_is_user_error() {
 
         // OPTIONS asterisk-form with host authority is the same class of bug.
         let request = Request::builder()
+            .version(Version::HTTP_2)
             .method(Method::OPTIONS)
             .uri("example.com:8080")
             .body(())
@@ -624,6 +626,79 @@ async fn request_with_authority_without_scheme_is_user_error() {
 
         let _: () = h2.await.expect("h2");
         drop(client);
+    };
+
+    join(srv, h2).await;
+}
+
+#[tokio::test]
+async fn host_header_promoted_to_authority_and_stripped() {
+    // #876 / RFC 9113 §8.3.1: never emit Host alongside :authority; when the
+    // user supplies Host, promote it to :authority (matches curl/Go).
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        // Host: example.net wins over URI authority example.com; no host field.
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.net/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        // Matching Host is stripped (only :authority on wire).
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(3).response(200).eos()).await;
+        // Relative path + Host → :authority from Host, default scheme for HTTP/1.1.
+        srv.recv_frame(
+            frames::headers(5)
+                .request("GET", "http://example.org/rel")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(5).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.expect("handshake");
+
+        // Differing Host overrides URI authority.
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .header("host", "example.net")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(request, true).unwrap();
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Matching Host is still not sent as a regular header.
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .header("host", "example.com")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(request, true).unwrap();
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // HTTP/1.1-style relative URI + Host.
+        let request = Request::builder()
+            .uri("/rel")
+            .header("host", "example.org")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(request, true).unwrap();
+        let response = h2.drive(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     };
 
     join(srv, h2).await;
