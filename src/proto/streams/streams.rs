@@ -1655,6 +1655,23 @@ fn drop_send_ref(inner: &Mutex<Inner>, key: store::Key) {
             &mut inner.counts,
             &mut inner.actions.task,
         );
+        // SendStream docs: drop without closing send → RST_STREAM. Recv
+        // handles (ResponseFuture / RecvStream) keep ref_count > 0, so
+        // maybe_cancel would wait until those drop and hang the peer (F81).
+        if !stream.state.is_send_closed() {
+            let pending_open = stream.is_pending_open;
+            inner.counts.transition(stream, |counts, stream| {
+                inner.actions.send.schedule_implicit_reset(
+                    stream,
+                    Reason::CANCEL,
+                    counts,
+                    &mut inner.actions.task,
+                );
+                if !pending_open {
+                    inner.actions.recv.enqueue_reset_expiration(stream, counts);
+                }
+            });
+        }
     }
 }
 

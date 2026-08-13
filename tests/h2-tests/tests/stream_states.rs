@@ -1406,6 +1406,58 @@ async fn implicit_cancel_with_max_concurrent_stream() {
     join(mock, h2).await;
 }
 
+/// `SendStream` docs: drop without closing send emits RST_STREAM. Recv handles
+/// (`ResponseFuture`) must not delay that cancel — otherwise the peer waits
+/// forever for a body and the client hangs on the response (F81).
+#[tokio::test]
+async fn drop_send_stream_without_eos_resets_despite_response_future() {
+    use std::time::Duration;
+
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(frames::headers(1).request("POST", "https://example.com/"))
+            .await;
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            srv.recv_frame(frames::reset(1).cancel()),
+        )
+        .await
+        .expect("RST_STREAM(CANCEL) not sent after SendStream drop");
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, send) = client.send_request(req, false).unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        drop(send);
+
+        let err = tokio::time::timeout(Duration::from_secs(2), resp)
+            .await
+            .expect("ResponseFuture hung after SendStream drop")
+            .expect_err("ResponseFuture should fail after local CANCEL");
+        assert_eq!(err.reason(), Some(Reason::CANCEL));
+    };
+
+    join(srv, client).await;
+}
+
 /// Remote RST_STREAM after response headers (no EOS) must surface the error
 /// once on RecvStream, then end the stream (None) instead of sticky errors.
 ///
