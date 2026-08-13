@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F51 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F52 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -50,6 +50,7 @@
 - Outbound Content-Length on 1xx/204 / non-zero 205 → F49.
 - Outbound non-zero Content-Length with END_STREAM → F50.
 - Traditional CONNECT Content-Length (request reject + 2xx ignore) → F51.
+- Server 2xx CONNECT response Content-Length → F52.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - TE not exactly `trailers`: already rejected in load_hpack (`value != "trailers"`).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
@@ -59,7 +60,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F51.
+1. Package PRs for F3–F52.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
@@ -74,5 +75,4 @@
 - F30 residual mid-response NO_ERROR + temporary window 0: wait for peer WU by design (unlike schedule-time window 0 → CANCEL).
 - RST_STREAM / PRIORITY framing edge cases on stream 0 (recv path already checks RST id 0 in streams).
 - 205 with Content-Length: 0 still allowed (HTTP/1.1 style empty section); optional strip for pure H2.
-- Server generate 2xx CONNECT with Content-Length (need request-method on stream).
 - Extended CONNECT body Content-Length tracking (allowed; not special-cased).

@@ -132,10 +132,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Verdict:** F50 closes generate/receive asymmetry for general messages.
 
 ### Traditional CONNECT and Content-Length
-- **RFC 9110 §9.3.6 / RFC 9113 §8.5:** no Content-Length on traditional CONNECT request; client MUST ignore CL on successful CONNECT response (tunnel data is not a framed representation body).
+- **RFC 9110 §9.3.6 / RFC 9113 §8.5:** no Content-Length on traditional CONNECT request; client MUST ignore CL on successful CONNECT response; server MUST NOT send CL in 2xx CONNECT response.
 - **Rust h2 (pre-F51):** 2xx CONNECT + CL bound `Remaining` → tunnel DATA over length = PROTOCOL_ERROR; request CL accepted both ways.
 - **Rust h2 (F51):** mark traditional CONNECT streams; skip CL on 2xx responses; reject CL on traditional CONNECT generate + server convert.
-- **Verdict:** F51 aligns CONNECT tunnel interop with RFC ignore/MUST NOT rules; extended CONNECT unchanged.
+- **Rust h2 (pre-F52):** server `send_response(200 + CL)` on CONNECT still succeeded.
+- **Rust h2 (F52):** set `is_connect` on request accept; reject CL on 2xx `send_response`.
+- **Verdict:** F51+F52 complete CONNECT CL rules for client receive, client/server request, and server 2xx generate; extended CONNECT unchanged.
 
 ## Planned comparisons
 - Residual #848 API design.

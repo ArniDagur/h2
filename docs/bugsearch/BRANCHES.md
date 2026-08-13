@@ -55,6 +55,7 @@
 | `fix/reject-outbound-content-length-no-content` | F49 |
 | `fix/reject-outbound-cl-with-end-stream` | F50 |
 | `fix/connect-ignore-content-length` | F51 |
+| `fix/reject-connect-response-content-length` | F52 |
 
 ## experimental contains
-F1–F51, I1–I2, deadlock stress test, docs.
+F1–F52, I1–I2, deadlock stress test, docs.

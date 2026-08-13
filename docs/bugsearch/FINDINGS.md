@@ -290,6 +290,12 @@
 - **Fix branch:** `fix/connect-ignore-content-length`
 - **Change:** `Stream::is_connect` set on traditional CONNECT `send_request`; recv_headers skips CL for `is_connect && status.is_success()`; reject CL on traditional CONNECT outbound and server convert.
 
+### F52 — Server 2xx CONNECT response with Content-Length
+- **Severity:** Medium (protocol / API): F51 residual on the generate path. RFC 9110 §9.3.6: a server MUST NOT send Content-Length in a 2xx response to CONNECT. Pre-fix `send_response(200 + CL)` on a CONNECT stream succeeded.
+- **Evidence:** After traditional CONNECT request, `send_response(200 + CL:0)` pre-fix Ok; post-fix `UserError::MalformedHeaders`, then clean 200 without CL works. Regression `send_connect_response_rejects_content_length`.
+- **Fix branch:** `fix/reject-connect-response-content-length`
+- **Change:** Set `stream.is_connect` when server accepts traditional CONNECT; `send_response` rejects CL when `is_connect && status.is_success()`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
