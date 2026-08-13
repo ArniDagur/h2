@@ -278,6 +278,10 @@ impl Recv {
                 .pending_recv
                 .push_back(&mut self.buffer, Event::Headers(message));
             stream.notify_recv();
+            // Response HEADERS (especially with EOS) can end the receive half;
+            // wake push_promise waiters that are parked until the parent stream
+            // is no longer recv-open (#811).
+            stream.notify_push();
 
             // Only servers can receive a headers frame that initiates the stream.
             // This is verified in `Streams` before calling this function.
@@ -462,6 +466,8 @@ impl Recv {
             .pending_recv
             .push_back(&mut self.buffer, Event::Trailers(trailers));
         stream.notify_recv();
+        // Trailers end the receive half; wake push_promise waiters (#811).
+        stream.notify_push();
 
         Ok(())
     }
@@ -819,6 +825,10 @@ impl Recv {
         // Push the frame onto the recv buffer
         stream.pending_recv.push_back(&mut self.buffer, event);
         stream.notify_recv();
+        // DATA with END_STREAM ends the receive half; wake push_promise waiters (#811).
+        if stream.state.is_recv_end_stream() {
+            stream.notify_push();
+        }
 
         Ok(())
     }

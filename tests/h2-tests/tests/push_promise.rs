@@ -1,5 +1,6 @@
 use futures::{StreamExt, TryStreamExt};
 use h2_support::prelude::*;
+use std::pin::Pin;
 
 #[tokio::test]
 async fn recv_push_works() {
@@ -181,6 +182,110 @@ async fn recv_push_when_push_disabled_is_conn_error() {
     };
 
     join(mock, h2).await;
+}
+
+/// After all PUSH_PROMISEs are delivered, `push_promise()` parks on `push_task`.
+/// When the parent stream's response ends receive (HEADERS/DATA EOS), that
+/// waiter must be woken so the stream yields `None`. Regression for #811.
+#[tokio::test]
+async fn push_promises_stream_ends_when_parent_response_finishes() {
+    h2_support::trace_init!();
+    use std::time::Duration;
+
+    let (io, mut srv) = mock::new();
+    let (pushes_done_tx, pushes_done_rx) = tokio::sync::oneshot::channel();
+    let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel();
+
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(1, 2).request("GET", "https://example.com/a.css"),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(1, 4).request("GET", "https://example.com/b.css"),
+        )
+        .await;
+        // Deliver pushed responses so the client can finish each promise
+        // before waiting for the parent stream to end the push stream.
+        srv.send_frame(frames::headers(2).response(200).eos()).await;
+        srv.send_frame(frames::headers(4).response(200).eos()).await;
+
+        // Client has drained both promises and is parked on the next poll.
+        pushes_done_rx.await.unwrap();
+        // Ending the parent receive side must wake `push_task` (not only
+        // `recv_task`). Keep the connection open until the client finishes so
+        // EOF cannot spuriously wake the waiter.
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+        let _ = client_done_rx.await;
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        // Separate task so missed wakeups hang instead of being polled by drive().
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (mut resp, _) = client.send_request(request, true).unwrap();
+        let mut pushes = resp.push_promises();
+
+        // Collect both push promises first (without ending the parent stream).
+        for _ in 0..2 {
+            let p = poll_fn(|cx| pushes.poll_push_promise(cx))
+                .wakened()
+                .await
+                .expect("push stream ended early")
+                .expect("push error");
+            let (req, push_resp) = p.into_parts();
+            assert_eq!(req.method(), Method::GET);
+            let push_resp = push_resp.await.unwrap();
+            assert_eq!(push_resp.status(), StatusCode::OK);
+        }
+
+        // Register push_task, then finish the parent response. Without
+        // notify_push on recv_headers, this wakened poll never resumes
+        // (a plain timeout would re-poll on timer fire and hide the bug).
+        let mut end = poll_fn(|cx| pushes.poll_push_promise(cx)).wakened();
+        // First poll registers the waker and returns Pending.
+        assert!(
+            poll_fn(|cx| {
+                use std::task::Poll;
+                match Pin::new(&mut end).poll(cx) {
+                    Poll::Pending => Poll::Ready(false),
+                    Poll::Ready(_) => Poll::Ready(true),
+                }
+            })
+            .await
+                == false,
+            "expected push_promise to park after draining promises"
+        );
+
+        let _ = pushes_done_tx.send(());
+
+        let ended = tokio::time::timeout(Duration::from_secs(2), end)
+            .await
+            .expect("push_promise hung: parent response did not wake push_task (#811)");
+        assert!(ended.is_none(), "expected push stream to end with None");
+
+        let resp = resp.await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let _ = client_done_tx.send(());
+    };
+
+    join(mock, client).await;
 }
 
 #[tokio::test]
