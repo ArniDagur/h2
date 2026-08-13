@@ -771,7 +771,10 @@ impl Inner {
             }
         };
 
-        if stream.is_pending_open {
+        // Client pending_open: request HEADERS never left, peer still sees idle.
+        // Server pending_open: PUSH_PROMISE was already popped (then queue_open
+        // when no send slot). Peer sees reserved (local); RFC §5.1 allows RST.
+        if stream.is_pending_open && !self.counts.peer().is_server() {
             proto_err!(conn: "recv_reset: received frame on idle stream {:?}", id);
             return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
         }
@@ -813,7 +816,9 @@ impl Inner {
             // The remote may send window updates for streams that the local now
             // considers closed. It's ok...
             if let Some(mut stream) = self.store.find_mut(&id) {
-                if stream.is_pending_open {
+                // Same reserved-vs-idle split as recv_reset: a server push
+                // waiting on a concurrency slot is not idle at the peer.
+                if stream.is_pending_open && !self.counts.peer().is_server() {
                     proto_err!(conn: "recv_window_update: received frame on idle stream {:?}", id);
                     return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
                 }

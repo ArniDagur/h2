@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F92 — WU/RST on reserved `pending_open` push is treated as idle GOAWAY
+- **Severity:** Medium (protocol / connection-kill): After PP is written, a push child with no send slot is `queue_open`'d (`is_pending_open`). The peer sees **reserved**, not idle. RFC 9113 §5.1 reserved (local) allows RST_STREAM, WINDOW_UPDATE, and PRIORITY. `recv_window_update` / `recv_reset` treated every `pending_open` as idle → library GOAWAY PROTOCOL_ERROR. A client that ACKs the reserved id with WU, or refuses the push with RST, killed the connection. Client-request `pending_open` (HEADERS never sent) is still idle and still GOAWAYs.
+- **Evidence:** max=1; PP(2)+HEADERS(2) occupy the slot; PP(4) queued open; client `WINDOW_UPDATE(4)` or `RST_STREAM(4)`. Pre-fix: GOAWAY PROTOCOL_ERROR (pong timeout). Post-fix: PING/PONG succeeds. Regressions `window_update_on_pending_open_push_is_not_goaway`, `reset_on_pending_open_push_is_not_goaway`. DATA/HEADERS on that id still connection PROTOCOL_ERROR (not allowed on reserved local).
+- **Fix branch:** `fix/reserved-pending-open-allows-rst-wu`
+- **Change:** Idle `pending_open` check on RST/WU applies only on the client (unsent request HEADERS). Server `pending_open` is an advertised push.
+
 ### F91 — `pending_push` child hoards send capacity after `queue_open`
 - **Severity:** Medium (lost flow-control / hang): F90 sibling. `try_assign_capacity` skipped only `pending_open`, so a promised child could take the whole connection window while still `pending_push`. If `MAX_CONCURRENT_STREAMS` was already full, PP pop `queue_open`'d that child **with** the assignment. I1 (`pending_open` must not hold capacity) panics in debug; in release every open stream’s DATA starves until the child is later opened and finishes.
 - **Evidence:** Client `max_concurrent_streams=1`; push stream 2 (occupy slot) + push stream 4 `send_data(65535)` + DATA on stream 2. Pre-fix: I1 panic / stream 2 DATA timeout. Post-fix: `"ok"` arrives. Regression `pending_push_queued_open_does_not_hoard_send_capacity`. Existing `push_request_against_concurrency` (empty DATA) still passes.

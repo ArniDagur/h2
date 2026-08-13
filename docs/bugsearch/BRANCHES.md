@@ -95,6 +95,7 @@
 | `fix/goaway-wakes-pending-open-ready` | F89 |
 | `fix/clear-queue-reclaims-unsent-push-capacity` | F90 |
 | `fix/pending-push-skip-assign-until-open` | F91 |
+| `fix/reserved-pending-open-allows-rst-wu` | F92 |
 
 ## experimental contains
-F1–F91, I1–I2, deadlock stress test, docs.
+F1–F92, I1–I2, deadlock stress test, docs.
