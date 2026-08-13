@@ -392,6 +392,12 @@
 - **Fix branch:** `fix/reject-nonzero-cl-on-204`
 - **Change:** Reject non-zero CL on 204 before `recv_open` (so RST still emits after request EOS); EOS non-zero CL exception is 304-only.
 
+### F69 — Non path-absolute `:path` accepted; query-only URIs mis-encoded
+- **Severity:** Medium (protocol / interop): RFC 9113 §8.3.1 / nghttp2 require `:path` to be path-absolute (`/`…) or OPTIONS `*`. `http::uri::PathAndQuery` accepts query-only forms (`?q=1`), and `Pseudo::request` used `path_and_query` verbatim so `https://example.com?q=1` emitted illegal `:path: ?q=1` on the wire; servers accepted the same form on recv.
+- **Evidence:** Peer `:path: ?q=1` → post-fix `RST_STREAM(PROTOCOL_ERROR)`. Client URI `https://example.com?q=1` → wire `:path: /?q=1`. Units: `path_form`, `test_query_only_uri_path_is_normalized_to_slash_query`. Regressions: `reject_request_path_without_leading_slash`, `query_only_uri_sends_slash_query_path`.
+- **Fix branch:** `fix/reject-path-without-leading-slash`
+- **Change:** `frame::is_valid_path`; normalize query-only in `Pseudo::request` to `/`+query; reject invalid path form on server recv, client send, push convert.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

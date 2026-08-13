@@ -72,6 +72,7 @@
 | `fix/reject-empty-authority-host` | F66 |
 | `fix/reject-header-value-leading-trailing-ws` | F67 |
 | `fix/reject-nonzero-cl-on-204` | F68 |
+| `fix/reject-path-without-leading-slash` | F69 |
 
 ## experimental contains
-F1–F68, I1–I2, deadlock stress test, docs.
+F1–F69, I1–I2, deadlock stress test, docs.
