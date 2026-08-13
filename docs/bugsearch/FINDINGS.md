@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F95 — Explicit `send_reset` on `pending_push` waits for a send slot
+- **Severity:** Medium (hang / cancellation): F94 residual. Drop uses `ScheduledLibraryReset`; `send_reset` does `set_reset` and queues RST, but `schedule_send` is a no-op while `pending_push`. PP pop only special-cased scheduled reset, so the already-reset child with RST in the buffer went to `queue_open`. Abort required `is_reset && pending_send.is_empty()`, so the RST sat in `pending_open` until a concurrency slot opened. Holding the occupying stream left a reserved peer stream with no RST.
+- **Evidence:** max=1; occupy slot with stream 2; `send_response` + `send_reset(CANCEL)` on stream 4 before flush. Pre-fix: 2s timeout. Post-fix: `RST_STREAM(4) CANCEL` right after PP(4). Regression `send_reset_pending_push_does_not_wait_for_send_slot`. F94 drop path and client-request pending_open HEADERS+RST still wait for a slot.
+- **Fix branch:** `fix/pending-push-send-reset-no-slot`
+- **Change:** PP pop treats `is_reset` like a reserved RST (push to `pending_send`, no `queue_open`). Server `pending_open` abort also fires on `is_reset` even if RST is already queued.
+
 ### F94 — Cancelled `pending_push` after `send_response` still emits HEADERS
 - **Severity:** Medium (protocol / concurrency): F18/F93 residual. `send_response` queues HEADERS on the child, then drop schedules RESET while `is_pending_push`. PP pop only `pending_send.push`'d the child — queued HEADERS flushed first, opening the promised stream, and that branch does **not** `inc_num_send_streams`. With `MAX_CONCURRENT_STREAMS` already full, the cancelled push opened on the wire anyway.
 - **Evidence:** max=1; occupy slot with stream 2; `send_response` on stream 4 then drop before flush. Pre-fix: HEADERS(4) then RST (mock mismatch / opened over max). Post-fix: PP(4) then `RST_STREAM(4) CANCEL` only. Regression `drop_push_after_response_before_pp_flush_sends_reset_not_headers`. F18 (drop before `send_response`, no HEADERS) unchanged.

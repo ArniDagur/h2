@@ -98,6 +98,7 @@
 | `fix/reserved-pending-open-allows-rst-wu` | F92 |
 | `fix/reserved-pending-open-cancel-sends-rst` | F93 |
 | `fix/pending-push-cancel-drops-headers` | F94 |
+| `fix/pending-push-send-reset-no-slot` | F95 |
 
 ## experimental contains
-F1–F94, I1–I2, deadlock stress test, docs.
+F1–F95, I1–I2, deadlock stress test, docs.

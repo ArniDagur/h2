@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F94 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F95 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -93,6 +93,7 @@
 - Server push `pending_open` (PP already sent) treated WU/RST as idle → GOAWAY. Reserved (local) allows those frames — F92.
 - Drop/reset of that reserved `pending_open` push aborted locally (idle rule) and never RST'd — F93.
 - `send_response` then drop before PP flush left HEADERS queued; PP pop flushed them without a send slot (open over max) — F94.
+- Explicit `send_reset` on `pending_push` `queue_open`'d the RST and waited for a concurrency slot — F95.
 - `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
 - F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
@@ -134,7 +135,7 @@
 - Remote GOAWAY with `last_stream_id >= pending_open` id left `poll_ready` parked (`open_task` only notified via `handle_error` for `id > last`) — F89.
 
 ## High priority next
-1. Package PRs for F3–F94.
+1. Package PRs for F3–F95.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

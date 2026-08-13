@@ -974,6 +974,22 @@ impl Prioritize {
                                 self.clear_queue(buffer, &mut pushed, counts, &mut None);
                                 self.reclaim_all_capacity(&mut pushed, counts, &mut None);
                                 self.pending_send.push(&mut pushed);
+                            } else if pushed.state.is_reset() {
+                                // Explicit send_reset already set_reset and
+                                // queued RST (schedule_send is a no-op while
+                                // pending_push). Do not queue_open — RST would
+                                // wait for a concurrency slot the reserved
+                                // stream does not need (F95).
+                                if pushed.pending_send.is_empty() {
+                                    let reason = pushed
+                                        .state
+                                        .reset_reason()
+                                        .unwrap_or(Reason::CANCEL);
+                                    let frame = frame::Reset::new(pushed.id, reason);
+                                    self.queue_frame(frame.into(), buffer, &mut pushed, &mut None);
+                                } else {
+                                    self.pending_send.push(&mut pushed);
+                                }
                             } else if !pushed.pending_send.is_empty() {
                                 // Transition stream from pending_push to open /
                                 // pending_open if possible
@@ -1104,9 +1120,11 @@ impl Prioritize {
 
         while let Some(mut stream) = self.pending_open.pop(store) {
             counts.dec_num_pending_open();
+            let advertised_push = counts.peer().is_server();
             let should_abort = max_zero
                 || stream.state.is_scheduled_reset()
-                || (stream.state.is_reset() && stream.pending_send.is_empty());
+                || stream.state.is_reset()
+                    && (advertised_push || stream.pending_send.is_empty());
 
             if !should_abort {
                 keep.push(&mut stream);
