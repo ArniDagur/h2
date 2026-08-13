@@ -256,11 +256,27 @@ impl Send {
         // drop those HEADERS and let a RST_STREAM become the first frame on an
         // idle stream. HTTP/2 forbids that: §5.1 allows only HEADERS/PRIORITY
         // on idle streams and §6.4 says RST_STREAM on idle is a PROTOCOL_ERROR.
-        // Keep the queued HEADERS so the stream opens, then send the reset
-        // immediately after.
-        if !stream.is_pending_open {
-            // Otherwise, drop any buffered DATA/HEADERS and only send the
-            // reset.
+        //
+        // When a concurrency slot is available, keep HEADERS and queue RST so
+        // the stream opens then resets. When no slot can open (e.g. peer
+        // MAX_CONCURRENT_STREAMS=0), discard locally — the peer never saw the
+        // stream and waiting forever would leak it in pending_open.
+        if stream.is_pending_open {
+            if !counts.can_inc_num_send_streams() {
+                tracing::trace!(
+                    "send_reset -- pending_open with no concurrency slot; discard locally"
+                );
+                self.prioritize.clear_queue(buffer, stream);
+                self.prioritize.reclaim_all_capacity(stream, counts);
+                // Wake so buffer_pending can abort this stream out of pending_open.
+                if let Some(task) = task.take() {
+                    task.wake();
+                }
+                return;
+            }
+            // Keep HEADERS; queue RST below.
+        } else {
+            // Drop any buffered DATA/HEADERS and only send the reset.
             //
             // Note that we don't call `self.recv_err` because we want to enqueue
             // the reset frame before transitioning the stream inside

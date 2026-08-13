@@ -986,12 +986,14 @@ impl Prioritize {
         None
     }
 
-    /// Remove an implicitly-cancelled stream from the head of `pending_open`.
+    /// Remove a never-sent cancelled/reset stream from the head of `pending_open`.
     ///
-    /// Implicit cancel (`ScheduledLibraryReset`) means the user dropped all
-    /// handles before the stream was ever written. Emitting HEADERS+RST would
-    /// require a concurrency slot and is unnecessary (peer never saw the
-    /// stream). Explicit `send_reset` keeps HEADERS+RST queued instead.
+    /// - Implicit cancel (`ScheduledLibraryReset`): user dropped all handles.
+    /// - Explicit `send_reset` with empty `pending_send`: discarded because no
+    ///   concurrency slot was available (HEADERS+RST would never flush).
+    ///
+    /// Explicit reset that still has HEADERS+RST queued is left alone so a
+    /// later slot can open-then-reset (avoids RST on idle).
     ///
     /// Returns true if a stream was aborted (caller may loop).
     fn abort_closed_pending_open<B>(
@@ -1000,10 +1002,10 @@ impl Prioritize {
         store: &mut Store,
         counts: &mut Counts,
     ) -> bool {
-        let Some(mut stream) = self
-            .pending_open
-            .pop_if(store, |s| s.state.is_scheduled_reset())
-        else {
+        let Some(mut stream) = self.pending_open.pop_if(store, |s| {
+            s.state.is_scheduled_reset()
+                || (s.state.is_reset() && s.pending_send.is_empty())
+        }) else {
             return false;
         };
 
@@ -1014,7 +1016,7 @@ impl Prioritize {
         );
 
         counts.dec_num_pending_open();
-        // Never opened on the wire: discard buffered HEADERS and release.
+        // Never opened on the wire: discard any leftover frames and release.
         self.clear_queue(buffer, &mut stream);
         self.reclaim_all_capacity(&mut stream, counts);
         if let Some(reason) = stream.state.get_scheduled_reset() {

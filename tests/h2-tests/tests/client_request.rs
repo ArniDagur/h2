@@ -2412,3 +2412,69 @@ async fn drop_pending_open_with_max_concurrent_streams_zero() {
 
     join(srv, client).await;
 }
+
+/// Explicit `send_reset` on a `pending_open` stream when the peer advertises
+/// `MAX_CONCURRENT_STREAMS = 0` must free the stream without hanging.
+///
+/// Pre-fix kept HEADERS+RST queued waiting for a concurrency slot that never
+/// arrives. The stream was never on the wire, so discard locally.
+#[tokio::test]
+async fn send_reset_pending_open_with_max_concurrent_streams_zero() {
+    use std::time::Duration;
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().max_concurrent_streams(0))
+            .await;
+        assert_default_settings!(settings);
+
+        let frame = tokio::time::timeout(Duration::from_secs(2), srv.next())
+            .await
+            .expect("connection did not close (pending_open send_reset leak?)");
+        match frame {
+            None => {}
+            Some(Ok(frame::Frame::GoAway(_))) => {
+                srv.recv_eof().await;
+            }
+            other => panic!(
+                "unexpected frame after send_reset on pending_open: {:?}",
+                other
+            ),
+        }
+    };
+
+    let client = async move {
+        let (mut client, conn) = client::handshake(io).await.unwrap();
+        let conn = tokio::spawn(async move { conn.await });
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while client.current_max_send_streams() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timeout waiting for max_concurrent_streams=0");
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        let (resp, mut send_stream) = client.send_request(request, false).unwrap();
+        send_stream.send_reset(Reason::CANCEL);
+        drop(resp);
+        drop(send_stream);
+        drop(client);
+
+        tokio::time::timeout(Duration::from_secs(2), conn)
+            .await
+            .expect("client connection hung after send_reset on pending_open")
+            .expect("join conn task")
+            .expect("client connection error");
+    };
+
+    join(srv, client).await;
+}
