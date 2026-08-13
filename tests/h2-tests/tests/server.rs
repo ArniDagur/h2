@@ -2106,6 +2106,56 @@ async fn send_response_rejects_informational_status() {
     join(client, srv).await;
 }
 
+/// RFC 9113 §8.1.1: END_STREAM + non-zero Content-Length is malformed
+/// (304 may still advertise representation length with empty body).
+#[tokio::test]
+async fn send_response_rejects_nonzero_content_length_with_end_stream() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let _ = client.assert_server_handshake().await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        let bad = Response::builder()
+            .status(200)
+            .header("content-length", "10")
+            .body(())
+            .unwrap();
+        let err = stream
+            .send_response(bad, true)
+            .expect_err("200 + non-zero CL + EOS must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        // 304 MAY carry Content-Length of the selected representation.
+        // Not asserted here — only that a clean 200 still works after reject.
+        stream
+            .send_response(Response::builder().status(200).body(()).unwrap(), true)
+            .expect("clean 200 ok");
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9110 §8.6: server MUST NOT send Content-Length on 204.
 /// 205 requires empty content — non-zero CL is rejected; 304 MAY include CL.
 #[tokio::test]

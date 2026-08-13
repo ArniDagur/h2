@@ -335,6 +335,13 @@ where
         // stream id (HTTP/2 allows id skips, but wasting ids is unnecessary).
         // Connection-specific headers are checked here too — `send_headers`
         // also validates, but that runs after open/insert.
+        //
+        // RFC 9113 §8.1.1: END_STREAM with non-zero Content-Length is
+        // malformed (no DATA can follow). Peers reject this on receive.
+        if end_of_stream && has_nonzero_content_length(request.headers()) {
+            return Err(UserError::MalformedHeaders.into());
+        }
+
         let is_head = *request.method() == Method::HEAD;
         let stream_id = me.actions.send.ensure_next_stream_id()?;
         let headers =
@@ -1356,6 +1363,16 @@ impl<B> StreamRef<B> {
             }
         }
 
+        // RFC 9113 §8.1.1: END_STREAM with non-zero Content-Length is
+        // malformed (except 304, which may advertise representation length
+        // with an empty body). 204/205 already handled above.
+        if end_of_stream
+            && response.status().as_u16() != 304
+            && has_nonzero_content_length(response.headers())
+        {
+            return Err(UserError::MalformedHeaders);
+        }
+
         // Clear before taking lock, incase extensions contain a StreamRef.
         response.extensions_mut().clear();
         let mut me = self.opaque.inner.lock().unwrap();
@@ -1709,6 +1726,14 @@ fn is_content_length_zero(headers: &http::HeaderMap) -> bool {
         .get_all(http::header::CONTENT_LENGTH)
         .iter()
         .all(|v| frame::parse_u64(v.as_bytes()).map(|n| n == 0).unwrap_or(false))
+}
+
+fn has_nonzero_content_length(headers: &http::HeaderMap) -> bool {
+    headers.get_all(http::header::CONTENT_LENGTH).iter().any(|v| {
+        frame::parse_u64(v.as_bytes())
+            .map(|n| n > 0)
+            .unwrap_or(true) // unparseable CL is treated as malformed
+    })
 }
 
 // TODO: Move back in fn above

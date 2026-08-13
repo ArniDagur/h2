@@ -1749,6 +1749,58 @@ async fn reject_none_zero_content_length_header_with_end_stream() {
     join(srv, h2).await;
 }
 
+/// RFC 9113 §8.1.1: generate-path END_STREAM + non-zero Content-Length is
+/// malformed. Peers reject the same on receive (see test above).
+#[tokio::test]
+async fn send_request_rejects_nonzero_content_length_with_end_stream() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        // Valid follow-up after the rejected send_request.
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let bad = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .header("content-length", "5")
+            .body(())
+            .unwrap();
+        let err = client
+            .send_request(bad, true)
+            .expect_err("non-zero CL with EOS must fail");
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("user error"),
+            "got {}",
+            err
+        );
+
+        let ok = Request::builder()
+            .method(Method::GET)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(ok, true).expect("clean request");
+        let resp = conn.drive(resp).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, h2).await;
+}
+
 #[tokio::test]
 async fn early_hints() {
     h2_support::trace_init!();
