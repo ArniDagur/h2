@@ -1750,6 +1750,22 @@ impl proto::Peer for Peer {
             // RFC 9113 §8.5: CONNECT without :authority is malformed.
             // Same requirement applies to extended CONNECT (RFC 8441).
             malformed!("malformed headers: missing authority in CONNECT");
+        } else if let Some(host) = fields.get(http::header::HOST) {
+            // Origin-form HTTP/1.1→H2 may omit :authority and keep Host.
+            // nghttp2 requires :authority or Host; use Host for the request URI.
+            let host_bytes = bytes::Bytes::copy_from_slice(host.as_bytes());
+            let maybe_authority = uri::Authority::from_maybe_shared(host_bytes);
+            parts.authority = Some(maybe_authority.or_else(|why| {
+                malformed!(
+                    "malformed headers: malformed Host ({:?}): {}",
+                    host,
+                    why,
+                )
+            })?);
+        } else {
+            // nghttp2: non-CONNECT requests must include :authority or Host.
+            // Without either the request is not routable (no target authority).
+            malformed!("malformed headers: missing :authority and Host");
         }
 
         // A :scheme is required, except CONNECT.

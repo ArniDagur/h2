@@ -350,6 +350,12 @@
 - **Fix branch:** `fix/reject-invalid-scheme-token`
 - **Change:** `frame::is_valid_scheme` (RFC 3986 grammar); used on server recv, client send, and push convert.
 
+### F62 — Non-CONNECT request without `:authority` or Host accepted
+- **Severity:** Medium (protocol / interop): nghttp2 requires `:authority` or `Host` on non-CONNECT requests. Pre-fix, scheme+path-only requests were accepted with a relative `Uri` (not routable). Origin-form HTTP/1.1→H2 may omit `:authority` but keeps `Host`.
+- **Evidence:** GET with scheme+path only → post-fix `RST_STREAM(PROTOCOL_ERROR)`. Host without `:authority` accepted and used for URI authority. Regressions: `reject_request_without_authority_or_host`, `request_with_host_without_authority_pseudo` (replaces old `request_without_authority`).
+- **Fix branch:** `fix/require-authority-or-host`
+- **Change:** Server `convert_poll_message` requires `:authority` or Host; Host alone populates request URI authority.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)

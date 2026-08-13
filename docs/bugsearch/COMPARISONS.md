@@ -80,6 +80,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F61):** full grammar via `frame::is_valid_scheme` on recv and generate.
 - **Verdict:** F59+F61 align with RFC/nghttp2; http crate remains more permissive at Uri layer.
 
+### `:authority` or Host on non-CONNECT requests
+- **nghttp2:** non-CONNECT requires `NGHTTP2_HTTP_FLAG__AUTHORITY | NGHTTP2_HTTP_FLAG_HOST`.
+- **Rust h2 (pre-F62):** scheme+path only accepted (relative Uri, not routable).
+- **Rust h2 (F62):** require `:authority` or Host; Host alone populates request URI authority (origin-form).
+- **Verdict:** F62 matches nghttp2; Host-only path preserves HTTP/1.1 origin-form translation.
+
 ### Asterisk-form `:path`
 - **RFC 9110 §7.1 / RFC 9113 §8.3.1:** `:path` of `*` is for OPTIONS only.
 - **nghttp2:** for http/https, requires path-regular (`/`…) or (OPTIONS and path-asterisk).

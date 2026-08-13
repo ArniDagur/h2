@@ -65,6 +65,7 @@
 | `fix/reject-empty-scheme` | F59 |
 | `fix/reject-asterisk-path-non-options` | F60 |
 | `fix/reject-invalid-scheme-token` | F61 |
+| `fix/require-authority-or-host` | F62 |
 
 ## experimental contains
-F1–F61, I1–I2, deadlock stress test, docs.
+F1–F62, I1–I2, deadlock stress test, docs.

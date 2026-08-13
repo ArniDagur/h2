@@ -1723,8 +1723,48 @@ async fn server_error_on_status_in_request() {
     join(client, srv).await;
 }
 
+/// Origin-form may omit :authority when Host is present (HTTP/1.1→H2 style).
 #[tokio::test]
-async fn request_without_authority() {
+async fn request_with_host_without_authority_pseudo() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "/just-a-path")
+                    .scheme("http")
+                    .field("host", "example.com")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(1).response(200).eos())
+            .await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().path(), "/just-a-path");
+        assert_eq!(req.uri().authority().unwrap().as_str(), "example.com");
+
+        let rsp = Response::new(());
+        stream.send_response(rsp, true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
+/// nghttp2 / RFC 9113: non-CONNECT requests need :authority or Host.
+/// Pre-fix accepted scheme+path only (not routable).
+#[tokio::test]
+async fn reject_request_without_authority_or_host() {
     h2_support::trace_init!();
     let (io, mut client) = mock::new();
 
@@ -1739,20 +1779,29 @@ async fn request_without_authority() {
                     .eos(),
             )
             .await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+
         client
-            .recv_frame(frames::headers(1).response(200).eos())
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(frames::headers(3).response(200).eos())
             .await;
     };
 
     let srv = async move {
         let mut srv = server::handshake(io).await.expect("handshake");
         let (req, mut stream) = srv.next().await.unwrap().unwrap();
-        assert_eq!(req.uri().path(), "/just-a-path");
-
-        let rsp = Response::new(());
-        stream.send_response(rsp, true).unwrap();
-
+        assert_eq!(req.uri().path(), "/");
+        stream.send_response(Response::new(()), true).unwrap();
         assert!(srv.next().await.is_none());
+        poll_fn(move |cx| srv.poll_closed(cx))
+            .await
+            .expect("server");
     };
 
     join(client, srv).await;
