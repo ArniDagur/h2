@@ -116,6 +116,27 @@ impl Recv {
         self.init_window_sz
     }
 
+    /// Connection `in_flight_data` must equal Σ stream `in_flight_recv_data`.
+    ///
+    /// DATA either increments both, or is connection-only briefly and then
+    /// released without a stream entry (ignore / error / !is_recv).
+    #[cfg(debug_assertions)]
+    pub(super) fn debug_assert_recv_in_flight_conservation(&self, store: &Store) {
+        let stream_sum = store.sum_in_flight_recv_data();
+        let conn = self.in_flight_data as u64;
+        if conn != stream_sum {
+            let per_stream = store.debug_in_flight_recv_breakdown();
+            panic!(
+                "recv in-flight conservation violated: conn_in_flight={conn} \
+                 stream_sum={stream_sum} per_stream={per_stream:?}"
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub(super) fn debug_assert_recv_in_flight_conservation(&self, _store: &Store) {}
+
     /// Returns the ID of the last processed stream
     pub fn last_processed_id(&self) -> StreamId {
         self.last_processed_id
@@ -679,6 +700,34 @@ impl Recv {
         // on the stream.
         self.consume_connection_window(sz)?;
 
+        // After `consume_connection_window`, connection `in_flight_data` holds
+        // `sz` until we either transfer it to the stream, release it, or error.
+        // Release on every post-consume error so callers need not distinguish
+        // Reset vs GoAway (previously only Reset was released in Streams).
+        if let Err(e) = self.recv_data_after_connection_window(frame, stream, sz) {
+            self.release_connection_capacity(sz, &mut None);
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// Test helper: current connection in-flight recv capacity.
+    #[cfg(test)]
+    pub(super) fn in_flight_data(&self) -> WindowSize {
+        self.in_flight_data
+    }
+
+    /// Process DATA after connection window has been consumed.
+    ///
+    /// On `Err`, connection capacity for `sz` is still held by `in_flight_data`
+    /// (caller must release). On `Ok`, capacity was transferred to the stream
+    /// and/or released (e.g. ignored body / padding).
+    fn recv_data_after_connection_window(
+        &mut self,
+        frame: frame::Data,
+        stream: &mut store::Ptr,
+        sz: WindowSize,
+    ) -> Result<(), Error> {
         if stream.recv_flow.window_size() < sz {
             // http://httpwg.org/specs/rfc7540.html#WINDOW_UPDATE
             // > A receiver MAY respond with a stream error (Section 5.4.2) or
@@ -733,7 +782,8 @@ impl Recv {
             .send_data(sz)
             .map_err(proto::Error::library_go_away)?;
 
-        // Track the data as in-flight
+        // Track the data as in-flight (moves bookkeeping from connection-only
+        // to connection + stream; totals stay equal).
         stream.in_flight_recv_data += sz;
 
         // Auto-release padding overhead (pad_len field + padding bytes),
@@ -1269,6 +1319,64 @@ impl Recv {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_window_error_releases_connection_in_flight() {
+        // Regression: post-consume DATA errors must release connection
+        // in_flight (previously Streams only released on Reset, and only
+        // after recv_data returned — but double-accounting was easy to get
+        // wrong for GoAway paths).
+        let config = Config {
+            initial_max_send_streams: 0,
+            local_max_buffer_size: 0,
+            local_next_stream_id: 2.into(),
+            local_push_enabled: false,
+            extended_connect_protocol_enabled: false,
+            local_reset_duration: Duration::ZERO,
+            local_reset_max: 0,
+            remote_reset_max: 0,
+            remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            remote_max_initiated: None,
+            local_max_error_reset_streams: None,
+        };
+        let mut recv = Recv::new(peer::Dyn::Server, &config);
+        let mut store = Store::new();
+        let mut stream = store.insert(
+            StreamId::from(1),
+            Stream::new(StreamId::from(1), 0, DEFAULT_INITIAL_WINDOW_SIZE),
+        );
+        // Idle → Open with remote Streaming (request headers without EOS).
+        let headers = frame::Headers::new(
+            StreamId::from(1),
+            frame::Pseudo::request(
+                http::Method::POST,
+                http::Uri::from_static("https://example.com/"),
+                None,
+            ),
+            HeaderMap::new(),
+        );
+        stream.state.recv_open(&headers).unwrap();
+
+        // Exhaust stream recv window; connection window remains full.
+        stream
+            .recv_flow
+            .send_data(DEFAULT_INITIAL_WINDOW_SIZE)
+            .unwrap();
+
+        let mut data = frame::Data::new(StreamId::from(1), Bytes::from_static(b"hello"));
+        data.set_end_stream(true);
+        let err = recv.recv_data(data, &mut stream).unwrap_err();
+        assert!(matches!(
+            err,
+            Error::Reset(_, Reason::FLOW_CONTROL_ERROR, _)
+        ));
+        assert_eq!(
+            recv.in_flight_data(),
+            0,
+            "connection in_flight must be released after stream window error"
+        );
+        assert_eq!(stream.in_flight_recv_data, 0);
+    }
 
     #[test]
     fn clear_recv_buffer_caps_capacity_before_overflow() {

@@ -239,6 +239,34 @@ impl Store {
         }
         None
     }
+
+    /// Sum of per-stream recv in-flight capacity (user-held DATA).
+    ///
+    /// Must walk the **slab**, not only `ids`: closed streams are `unlink`ed
+    /// from the ID map while user handles still hold `in_flight_recv_data`.
+    #[cfg(debug_assertions)]
+    pub(super) fn sum_in_flight_recv_data(&self) -> u64 {
+        self.slab
+            .iter()
+            .map(|(_, stream)| stream.in_flight_recv_data as u64)
+            .sum()
+    }
+
+    #[cfg(debug_assertions)]
+    pub(super) fn debug_in_flight_recv_breakdown(&self) -> Vec<(StreamId, u32, bool, bool)> {
+        // (id, in_flight, is_recv, still_in_ids)
+        self.slab
+            .iter()
+            .map(|(_, stream)| {
+                (
+                    stream.id,
+                    stream.in_flight_recv_data,
+                    stream.is_recv,
+                    self.ids.contains_key(&stream.id),
+                )
+            })
+            .collect()
+    }
 }
 
 // While running h2 unit/integration tests, enable this debug assertion.

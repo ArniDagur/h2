@@ -198,6 +198,9 @@ where
             let status = {
                 let mut me = self.inner.lock().unwrap();
                 let status = me.buffer_pending(&self.send_buffer, dst)?;
+                me.actions
+                    .recv
+                    .debug_assert_recv_in_flight_conservation(&me.store);
 
                 // Register the task while holding the same lock used to
                 // observe that all pending frames have been buffered. A
@@ -637,17 +640,10 @@ impl Inner {
         let send_buffer = &mut *send_buffer;
 
         self.counts.transition(stream, |counts, stream| {
-            let sz = frame.flow_controlled_len();
+            // Connection capacity for failed DATA is released inside `recv_data`
+            // for every post-consume error (Reset and GoAway). Do not release
+            // again here or `in_flight_data` underflows.
             let res = actions.recv.recv_data(frame, stream);
-
-            // Any stream error after receiving a DATA frame means
-            // we won't give the data to the user, and so they can't
-            // release the capacity. We do it automatically.
-            if let Err(Error::Reset(..)) = res {
-                actions
-                    .recv
-                    .release_connection_capacity(sz as WindowSize, &mut None);
-            }
             actions.reset_on_recv_stream_err(send_buffer, stream, counts, res)
         })
     }
