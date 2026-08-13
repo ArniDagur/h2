@@ -1,20 +1,21 @@
 # Bugsearch status
 
 **Updated:** 2026-08-13  
-**Branch tip:** `experimental/bugsearch` (F75 @ `dcaec36`; tip `1523a9c`)
+**Branch tip:** `experimental/bugsearch` (F76 @ `86a3bd0`)
 
 ## Current focus
-High-signal FC/hang hunt after F75. Deadlock stress test repaired.
+F76: reserve_capacity reclaim must wake connection for starved senders.
 
 ## Last actions
-1. Re-ran `logical_deadlock_max_concurrent_streams_stress` (#853): was failing every stream with **remote RST PROTOCOL_ERROR**, not a hang.
-2. Root cause: F62 rejects scheme+path-only requests; test used `uri("/")` without Host/authority.
-3. Fixed test to `http://localhost/`; stress passes 3× (~0.3s). #853 still looks fixed (no capacity-on-pending_open deadlock).
+1. Confirmed **F76**: reclaim via `reserve_capacity(0)` assigned capacity onto a stream with buffered DATA (`pending_send`) without waking `actions.task`.
+2. Hang: connection parked on read never flushed the starved stream.
+3. Fix: thread waker through assign/try_assign; wake when scheduling `pending_send`.
+4. Regression: `reserve_capacity_reclaim_wakes_connection_for_starved_send`.
 
 ## Next recommended step
-1. Package PRs for F3–F75.
+1. Package PRs for F3–F76.
 2. Residual #848 API ready-at-max-open.
-3. Further FC/wakeup hunt: mid-response NO_ERROR+window0 (by design); full IPv6 structure; scan for new hangs.
+3. Note: `settings_decrease_wakes_poll_capacity_on_reclaim` drain loop is infinite after F29 (always Ready when capacity>0) — test hygiene, not a library hang.
 
 ## Blockers
 None.

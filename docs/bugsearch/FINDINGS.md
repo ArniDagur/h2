@@ -434,6 +434,12 @@
 - **Fix branch:** `fix/reject-empty-ipv6-literal-authority`
 - **Change:** `frame::is_empty_or_empty_ip_literal_host` treats `""` and `"[]"` as empty; used on server recv, Host-only, client send, and push convert.
 
+### F76 — `reserve_capacity` reclaim does not wake connection for starved DATA
+- **Severity:** Medium (hang / FC): Stream A can `reserve_capacity` the whole connection window without sending. Stream B `send_data` buffers (pending_capacity). When A `reserve_capacity(0)`, `assign_connection_capacity` → `try_assign_capacity` moved B onto `pending_send` but never woke `actions.task`. A connection parked on read never flushed B.
+- **Evidence:** Spawned connection + hold reservation + starved `send_data` + reclaim: pre-fix 2s timeout waiting for DATA; post-fix DATA sent. Regression: `reserve_capacity_reclaim_wakes_connection_for_starved_send`.
+- **Fix branch:** `fix/reserve-capacity-reclaim-wakes-send`
+- **Change:** Thread connection waker through reserve/assign/try_assign; wake when `try_assign_capacity` schedules `pending_send`.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
