@@ -1039,6 +1039,46 @@ async fn recv_uppercase_header_name_is_stream_error() {
     join(client, srv).await;
 }
 
+/// RFC 9113 §8.2.1: empty field names are malformed (stream), not NeedMore.
+/// Pre-fix `Header::new` returned NeedMore → codec GOAWAY PROTOCOL_ERROR.
+#[tokio::test]
+async fn recv_empty_header_name_is_stream_error() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    // HEADERS+EOS stream 1: GET https://example.com/ + literal empty-name "foo"
+    let mut frame = vec![0, 0, 0x16, 1, 5, 0, 0, 0, 1, 0x82, 0x87, 0x84, 0x41, 0x0b];
+    frame.extend_from_slice(b"example.com");
+    frame.extend_from_slice(&[0x00, 0x00, 0x03]);
+    frame.extend_from_slice(b"foo");
+    assert_eq!(frame.len(), 9 + 0x16);
+
+    let client = async move {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+        client.send_bytes(&frame).await;
+        client.recv_frame(frames::reset(1).protocol_error()).await;
+        client
+            .send_frame(
+                frames::headers(3)
+                    .request("GET", "https://example.com/ok")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::headers(3).response(200).eos()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.uri().path(), "/ok");
+        let _ = stream.send_response(Response::builder().status(200).body(()).unwrap(), true);
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// RFC 9113 §8.2.1: field values MUST NOT have leading or trailing SP/HTAB.
 /// nghttp2 rejects these; http::HeaderValue accepts them so h2 must check.
 #[tokio::test]

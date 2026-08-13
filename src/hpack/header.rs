@@ -1,4 +1,4 @@
-use super::{DecoderError, NeedMore};
+use super::DecoderError;
 use crate::ext::Protocol;
 
 use bytes::Bytes;
@@ -66,8 +66,10 @@ impl Header<Option<HeaderName>> {
 
 impl Header {
     pub fn new(name: Bytes, value: Bytes) -> Result<Header, DecoderError> {
+        // Empty name is a complete HPACK string (len 0), not NeedMore.
+        // RFC 9113 §8.2.1: empty field names are malformed (stream error).
         if name.is_empty() {
-            return Err(DecoderError::NeedMore(NeedMore::UnexpectedEndOfStream));
+            return Ok(Header::Malformed);
         }
         if name[0] == b':' {
             match &name[1..] {

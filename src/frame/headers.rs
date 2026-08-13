@@ -1547,4 +1547,25 @@ mod test {
             "uppercase field name must be stream malformed, not HPACK/GOAWAY; got {err:?}"
         );
     }
+
+    #[test]
+    fn empty_header_name_is_malformed_not_need_more() {
+        // Literal empty name + value "foo" after GET https://example.com/
+        let mut hpack = vec![0x82u8, 0x87, 0x84, 0x41, 0x0b];
+        hpack.extend_from_slice(b"example.com");
+        hpack.extend_from_slice(&[0x00, 0x00, 0x03]);
+        hpack.extend_from_slice(b"foo");
+
+        let mut decoder = crate::hpack::Decoder::new(4096);
+        let head = Head::new(Kind::Headers, END_HEADERS, 1.into());
+        let (mut headers, _) = Headers::load(head, BytesMut::new()).unwrap();
+        let mut chunk = BytesMut::from(&hpack[..]);
+        let err = headers
+            .load_hpack(&mut chunk, 16 << 20, &mut decoder)
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::MalformedMessage),
+            "empty field name must be stream malformed, not NeedMore/GOAWAY; got {err:?}"
+        );
+    }
 }
