@@ -33,7 +33,9 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Go (`processData`):** idle/id0 → connection PROTOCOL_ERROR; otherwise not open → stream STREAM_CLOSED + connection FC refund.
 - **Rust h2 (pre-F23):** any `!is_recv_streaming` with stream in store → GOAWAY PROTOCOL_ERROR (over-aggressive).
 - **Rust h2 (F23):** stream STREAM_CLOSED + `ignore_data` (connection FC); forgotten streams already STREAM_CLOSED. Idle not-in-store still connection PROTOCOL_ERROR.
-- **Verdict:** F23 aligns with Go/RFC for late DATA after EOS.
+- **Rust h2 (pre-F79):** `pending_open` is in the store (never sent) so F23 treated DATA as STREAM_CLOSED; peer still sees idle.
+- **Rust h2 (F79):** `pending_open` DATA → connection PROTOCOL_ERROR (same as HEADERS/RST/WU on that id).
+- **Verdict:** F23 aligns with Go/RFC for late DATA after EOS; F79 aligns idle/pending_open with Go/RFC §5.1.
 
 ### HEADERS after recv EOS
 - **Go (`processHeaders`):** `stateHalfClosedRemote` → stream STREAM_CLOSED.

@@ -77,6 +77,7 @@
 - reserve_capacity reclaim missed connection wake for starved DATA → F76.
 - Drop SendStream while recv handle lives leaked reserved capacity → F77.
 - SendResponse after send_response still counted as send handle → F78.
+- DATA on pending_open treated as STREAM_CLOSED (F23 over-broad) → F79.
 - HEAD non-empty response DATA: already PROTOCOL_ERROR via `ContentLength::Head` (no fix needed).
 - #30 pending_accept still delivers remote-reset requests — maintainer-punted (log/inspect).
 - Trailers without END_STREAM: already PROTOCOL_ERROR in streams.rs; ignored test `recv_trailers_without_eos` is obsolete.
@@ -85,7 +86,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 
 ## High priority next
-1. Package PRs for F3–F78.
+1. Package PRs for F3–F79.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

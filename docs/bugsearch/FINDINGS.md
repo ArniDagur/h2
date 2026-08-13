@@ -452,6 +452,13 @@
 - **Fix branch:** `fix/send-response-holds-send-ref`
 - **Change:** `StreamRef::owns_send`; after successful `send_response`, clone `SendStream` then `release_send_ownership` so the leftover `SendResponse` does not pin the reservation. Drop still reclaims when the last owning send handle goes away.
 
+### F79 — DATA on `pending_open` (idle) treated as stream STREAM_CLOSED
+- **Severity:** Medium (protocol / connection-kill): RFC 9113 §5.1: any frame other than HEADERS or PRIORITY on an idle stream is a connection PROTOCOL_ERROR. `pending_open` streams have a local id but HEADERS have not been sent, so the peer still sees idle. `recv_headers` / `recv_reset` / `recv_window_update` already GOAWAYed; F23's `!is_recv_streaming` path applied STREAM_CLOSED to DATA instead, so the connection stayed up.
+- **Evidence:** Existing `frame_on_pending_open_stream_is_conn_error` (scenario DATA on stream 3 while queued) failed: `poll_ready` succeeded. Post-fix: GOAWAY PROTOCOL_ERROR. Open-then-EOS extra DATA still STREAM_CLOSED (`data_after_response_eos_is_stream_closed_not_goaway`).
+- **Fix branch:** `fix/data-on-pending-open-is-conn-error`
+- **Change:** `Streams::recv_data` GOAWAYs PROTOCOL_ERROR when `is_pending_open`, matching the other recv paths. F23 STREAM_CLOSED remains for streams that were open then recv-closed.
+- **Matches Go:** `processData` idle → connection PROTOCOL_ERROR; already-opened-not-recv → stream STREAM_CLOSED.
+
 ## Instrumentation
 ### I1 — Send capacity conservation (debug) — holds
 ### I2 — Recv in-flight conservation (debug) — holds (sum **slab**)
