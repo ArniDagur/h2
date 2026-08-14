@@ -4,19 +4,18 @@
 **Branch tip:** `experimental/bugsearch` (F96)
 
 ## Current focus
-F96: queued PUSH_PROMISE was still written after the client disabled push.
+No new hang/FC this fire. Checked GOAWAY + queued PUSH_PROMISE.
 
 ## Last actions
-1. `poll2` applies SETTINGS then `poll_complete` writes pending frames.
-2. `ENABLE_PUSH=0` only cleared `Send::is_push_enabled`; already-queued PP still flushed.
-3. RFC 9113 §8.4: that PP is a connection PROTOCOL_ERROR at the client.
-4. Fix: drop PP at pop and locally cancel the never-sent child.
-5. Regression: `queued_push_promise_not_sent_after_enable_push_zero`.
+1. `send.max_stream_id` is set on recv GOAWAY but not consulted when sending PP/HEADERS.
+2. `send_request` is blocked by `conn_error` (F89). `push_request` is not.
+3. RFC §6.8: receiver SHOULD NOT initiate streams > last; the GOAWAY sender **ignores** those frames (unlike F96 ENABLE_PUSH=0 → client PROTOCOL_ERROR).
+4. Logged as optional hardening, not a silent hang/FC.
 
 ## Next recommended step
 1. Package PRs for F3–F96.
 2. Residual #848 API ready-at-max-open.
-3. Optional test hygiene: S4 stale tests + F29 drain loop.
+3. Optional: reject `push_request` / drop queued PP when `promised_id > send.max_stream_id`.
 4. Next search: fuzz vs Go/nghttp2 or other hang/FC.
 
 ## Blockers

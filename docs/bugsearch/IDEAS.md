@@ -95,6 +95,7 @@
 - `send_response` then drop before PP flush left HEADERS queued; PP pop flushed them without a send slot (open over max) — F94.
 - Explicit `send_reset` on `pending_push` `queue_open`'d the RST and waited for a concurrency slot — F95.
 - Queued PUSH_PROMISE flushed after peer SETTINGS_ENABLE_PUSH=0 (poll2 applies then poll_complete writes) — F96.
+- Queued PP after *receiving* GOAWAY with last < promised id: RFC §6.8 is SHOULD NOT initiate; the GOAWAY sender **ignores** frames on streams > last (not PROTOCOL_ERROR like F96). `send_request` already `ensure_no_conn_error`. `push_request` does not check `send.max_stream_id` — optional hardening, not hang/FC.
 - `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
 - F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
@@ -112,7 +113,7 @@
 - WINDOW_UPDATE increment 0: frame load rejects both stream 0 and N as connection InvalidWindowUpdateValue. RFC MUST conn-error on stream 0; MAY stream-error on N — match is valid.
 - `poll_trailers` parks while DATA is at `pending_recv` head (test `poll_trailers_before_data_is_consumed`); `poll_data` notify_recv unparks. Trailers-only after DATA+EOS with no further frames never wakes — drain-data-then-trailers API, not a library missed wakeup.
 - Second refuse while `refused` is Some asserts; poll_ready sends RST before the next `poll_next`, and CodecFull stops reads — same poll-ordering class as SETTINGS ACK.
-- `try_assign_capacity` does not skip `is_pending_push` (only `pending_open`). PP is not flow-controlled; next `poll_complete` writes PP then the child can send. Not a hang.
+- `try_assign` skipping `pending_push` is F91; leftover IDEAS note that said it was “not a hang” is obsolete.
 - SETTINGS MAX_FRAME_SIZE outside 2^14..2^24-1 already InvalidSettingValue (no zero-length DATA spin).
 - Peer RST `send.handle_error` reclaims with `task=None`. Unlike F76 (user-thread reclaim while parked on read), RST runs inside `poll2`; after `poll_next` Pending, `poll_complete` writes any stream that inherited the capacity.
 - `poll_accept`: `poll_closed` Ready → `None` without draining `pending_accept` (TODO). Connection is already closed; no parked accept waiter beyond that Ready. #30 is the related maintainer-punted reset-in-queue case.
