@@ -4,11 +4,11 @@
 **Branch tip:** `experimental/bugsearch` (F106)
 
 ## Current focus
-No new hang/FC. Rechecked I1 send-capacity conservation and EOS reclaim.
+No new hang/FC. Rechecked recv WU wake and pending_capacity evict.
 
 ## Last actions
-1. I1 sums `ids` only (I2 walks slab). Unlinked-but-live streams with leftover `available` would hide from I1; `is_closed` requires empty send queue, and `send_data`/`send_trailers` EOS plus F77 reclaim reserved capacity. `send_headers` EOS does not `reserve_capacity(0)`, but that path is first HEADERS on a new stream (`available == 0`).
-2. Codec `shutdown` flushes before `poll_shutdown`. `poll_complete` CodecFull parks on the write waker.
+1. `release_capacity` wakes `actions.task`. `poll_complete` sets that task on Complete; CodecFull parks on the write waker. Parked-on-read after Complete has `task=Some`. send_data `take`s the task but already woke the connection.
+2. `assign_connection_capacity` evicts closed streams from `pending_capacity` without `transition_after` (delayed slab reap). `recv_eof` `clear_pending_capacity` reaps. Not a waiter hang/FC leak.
 
 ## Next recommended step
 1. Package PRs for F3–F106.

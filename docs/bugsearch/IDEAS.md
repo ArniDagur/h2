@@ -171,6 +171,8 @@
 - DATA/RST/WU on unadvertised `pending_push`: idle on the wire; STREAM_CLOSED / apply WU (not F79 GOAWAY). Attack/mis-id; not hang/FC.
 - `has_streams()` omits reserved-local and `pending_push` (only open + reserved-remote). After parent EOS, graceful `should_close_on_idle` can `go_away_now` while a push handle is still live. Client push future gets `recv_eof`, not a hang. Optional: count reserved-local / pending_push in `has_streams`.
 - I1 sums send `available` via `ids` only; I2 must walk slab (unlink + live RecvStream). No reachable leftover send assignment on unlinked streams: first HEADERS+EOS has `available==0`; body/trailers EOS and F77 reclaim. Not an I1 hole.
+- `release_capacity` / queue_frame wake `actions.task`. Set on `poll_complete` Complete; CodecFull does not clear it. User `send_data` may `take` the task but that path already woke. Recv WU is not a F76-style missed wake.
+- `assign_connection_capacity` `continue`s when a `pending_capacity` stream is no longer send-streaming (reset/closed). `pop` clears the queue flag; `transition_after` waits until `recv_eof`/another touch. Delayed slab reap only.
 
 ## High priority next
 1. Package PRs for F3–F106.
