@@ -373,3 +373,64 @@ async fn recv_trailers_with_content_length_is_stream_error() {
     join(srv, client).await;
 }
 
+/// `poll_trailers` parks while DATA is at the head of `pending_recv`. A later
+/// RST must surface on the next poll — not re-park forever (no further recv
+/// notify after the reset).
+#[tokio::test]
+async fn poll_trailers_after_reset_with_buffered_data_does_not_hang() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://example.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        srv.send_frame(frames::data(1, "hello")).await;
+        srv.ping_pong([1; 8]).await;
+        srv.send_frame(frames::reset(1).cancel()).await;
+        srv.ping_pong([2; 8]).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).unwrap();
+        let resp = conn.drive(resp).await.expect("response headers");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let mut body = resp.into_body();
+
+        // Park poll_trailers on the buffered DATA, then let the RST arrive.
+        conn.drive(poll_fn(|cx| match body.poll_trailers(cx) {
+            Poll::Pending => Poll::Ready(()),
+            other => panic!("expected Pending on DATA, got {:?}", other),
+        }))
+        .await;
+
+        let got = tokio::time::timeout(
+            Duration::from_secs(2),
+            conn.drive(poll_fn(|cx| body.poll_trailers(cx))),
+        )
+        .await
+        .expect("poll_trailers hung after RST with buffered DATA");
+        let err = match got {
+            Err(e) => e,
+            other => panic!("expected Err after RST, got {:?}", other),
+        };
+        assert_eq!(err.reason(), Some(Reason::CANCEL));
+        drop(body);
+        drop(client);
+        let _ = conn.await;
+    };
+
+    join(srv, client).await;
+}
+

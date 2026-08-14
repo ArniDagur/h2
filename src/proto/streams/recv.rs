@@ -1664,8 +1664,22 @@ impl Recv {
             Some(event) => {
                 // Frame is not trailers.. not ready to poll trailers yet.
                 stream.pending_recv.push_front(&mut self.buffer, event);
-                stream.recv_task = Some(cx.waker().clone());
-                Poll::Pending
+                // RST / conn error must not re-park behind leftover DATA:
+                // notify_recv already fired, and no further recv wake comes.
+                match stream.state.ensure_recv_open(stream.id) {
+                    Ok(_) => {
+                        stream.recv_task = Some(cx.waker().clone());
+                        Poll::Pending
+                    }
+                    Err(e) => {
+                        if stream.recv_err_delivered {
+                            Poll::Ready(None)
+                        } else {
+                            stream.recv_err_delivered = true;
+                            Poll::Ready(Some(Err(e)))
+                        }
+                    }
+                }
             }
             None => self.schedule_recv(cx, stream),
         }
