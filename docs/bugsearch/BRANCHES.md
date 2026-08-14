@@ -110,6 +110,7 @@
 | `fix/push-request-after-remote-goaway` | F104 |
 | `fix/oversize-trailers-before-recv-close` | F105 |
 | `fix/pending-push-kept-until-pp-flush` | F106 |
+| `fix/push-promise-ahead-of-blocked-data` | F107 |
 
 ## experimental contains
-F1–F106, I1–I2, deadlock stress test, docs.
+F1–F107, I1–I2, deadlock stress test, docs.

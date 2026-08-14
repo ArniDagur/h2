@@ -63,6 +63,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F99):** first 1xx opens `HalfClosedLocal(AwaitingHeaders)`.
 - **Verdict:** F99 is an h2 state-machine / counting bug, not a Go mismatch.
 
+### PUSH_PROMISE behind window-blocked DATA
+- **RFC 9113 §6.9:** only DATA is flow-controlled. PP may be interleaved with DATA on the parent.
+- **Go:** handler `Write` is synchronous; a blocked body write typically prevents `Push()` until window arrives. HOL is implicit in the API.
+- **Rust h2 (pre-F107):** async `send_data` buffers then `push_request` queues PP behind that DATA. Zero stream window parked the stream until WU; child stayed `pending_push`.
+- **Rust h2 (F107):** `pop_frame` promotes a later PP when DATA cannot be written. Trailers still wait.
+- **Verdict:** h2-local hang from the buffered send API, not a Go mismatch.
+
 ### PUSH_PROMISE on reserved (remote) / push parent
 - **RFC 9113 §5.1 / §6.6:** reserved (remote) may receive only HEADERS/RST/PRIORITY; PP only on peer-initiated open / half-closed (remote).
 - **Rust h2 (pre-F102):** `ensure_recv_open` is true for `ReservedRemote` and `HalfClosedLocal` (opened push), so nested `PP(2, 4)` was stored.

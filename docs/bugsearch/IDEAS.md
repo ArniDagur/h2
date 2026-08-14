@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F106 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F107 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -183,9 +183,10 @@
 - `push_request` when `max_send_streams==0` (server before peer SETTINGS, or later SETTINGS 0): PP is legal (reserved not counted). Child `queue_open` then F15/F93 RST. Not a hang. Optional: `Rejected` before reserve (same as `send_request`) to avoid PP-then-RST.
 - Client `maybe_close_connection_if_no_streams` at `Connection::poll` start: `SendRequest` clone holds `refs`. `pending_open` without handles is aborted in `poll_complete` before idle GOAWAY. Not a close-while-queued hang.
 - I1 `pending_push` available: `Stream::new` does not `assign_capacity` on send flow; only `try_assign` assigns and it skips `pending_push`. No extra I1 check needed.
+- `PUSH_PROMISE` queued behind window-blocked parent DATA (`send_data` then `push_request`, IWS=0 or window already spent) never flushed; child stayed `pending_push` — F107. Trailers must still wait for DATA.
 
 ## High priority next
-1. Package PRs for F3–F106.
+1. Package PRs for F3–F107.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

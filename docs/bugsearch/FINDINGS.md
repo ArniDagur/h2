@@ -602,6 +602,13 @@
 - **Change:** Reject `frame.is_over_size()` at the start of `recv_trailers` (before `recv_close`).
 - **Regression:** `oversize_trailers_after_request_eos_sends_reset`.
 
+### F107 — `PUSH_PROMISE` stuck behind window-blocked DATA
+- **Severity:** Medium (hang / cancel): RFC 9113 §6.9 flow-controls only DATA. `send_data` then `push_request` queued PP behind the DATA. If the stream window was 0 (`INITIAL_WINDOW_SIZE=0`, or the window already spent), `pop_frame` put DATA back and parked the stream until WINDOW_UPDATE. The child stayed `pending_push`; its HEADERS never flushed. A client that never gives more stream window (not reading the parent body) hung the push forever. Empty DATA still flushed (always sendable); existing `push_request_between_data` hid this.
+- **Evidence:** Client IWS=0, parent 200 + `send_data("hello")` + `push_request` + child 200 EOS. Pre-fix: 2s timeout waiting for PP. Post-fix: `PUSH_PROMISE(1,2)` then `HEADERS(2)` with no WU; parent DATA still withheld. Regression `push_promise_flushes_ahead_of_window_blocked_data`.
+- **Fix branch:** `fix/push-promise-ahead-of-blocked-data`
+- **Change:** When DATA cannot be written, `take_first_if` extracts a later `PushPromise` and `push_front`s it so the next `pop_frame` sends PP. Trailers stay behind DATA.
+- **Regression:** `push_promise_flushes_ahead_of_window_blocked_data`.
+
 ### F106 — Cancelled `pending_push` child reaped before PUSH_PROMISE flush
 - **Severity:** High (panic): Dropping `SendPushedResponse` before PP leaves the parent queue sets `ScheduledLibraryReset` on the child (`is_pending_push`). `transition_after` then **unlinked** the id map whenever the stream was closed and not on the reset-expiration queue. That happens immediately when `enqueue_reset_expiration` is refused (`max_concurrent_reset_streams=0`), after `reset_stream_duration` expires (default 1s; `poll2` reaps before `poll_complete`), or after remote GOAWAY `handle_error` + handle drop (already `Closed`, no `reset_at`). `pop_frame` then `unwrap()`'d `find_mut(promised_id)` for the still-queued PP.
 - **Evidence:** `max_concurrent_reset_streams(0)`, `push_request` + drop, then parent 200: pre-fix panic at `find_mut(...).unwrap()`. Post-fix same as F18: `PUSH_PROMISE(1,2)` then `RST_STREAM(2) CANCEL`, parent 200. Defense: missing child discards PP (never advertised).

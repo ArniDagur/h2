@@ -1,18 +1,18 @@
 # Bugsearch status
 
 **Updated:** 2026-08-14  
-**Branch tip:** `experimental/bugsearch` (F106)
+**Branch tip:** `experimental/bugsearch` (F107)
 
 ## Current focus
-No new hang/FC. Rechecked F5 open_task split, F17 abort flag, I1 unlink vs `is_closed()`.
+F107: PUSH_PROMISE hung behind window-blocked parent DATA.
 
 ## Last actions
-1. `poll_pending_open` still parks only on `open_task` (F5). `wait_send` is poll_capacity/poll_reset only.
-2. Queue `pop` clears `is_pending_open`. F17 abort then `poll_ready` sees missing/non-pending id → Ready.
-3. I1 ids-only vs unlink: `Stream::is_closed()` requires empty `pending_send` and `buffered==0`, so unlink does not happen while assigned send capacity remains (RST still queued or body still buffered). Not an I1/F106-class hole.
+1. Confirmed hang: IWS=0 + `send_data` then `push_request` — PP never left (2s timeout).
+2. `pop_frame` now promotes a later PP when DATA cannot be written (not flow-controlled).
+3. Regression `push_promise_flushes_ahead_of_window_blocked_data` passes; pre-fix fails.
 
 ## Next recommended step
-1. Package PRs for F3–F106.
+1. Package PRs for F3–F107.
 2. Residual #848 API ready-at-max-open.
 3. Next search: fuzz vs Go/nghttp2 or other hang/FC.
 
