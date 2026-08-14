@@ -111,6 +111,7 @@
 | `fix/oversize-trailers-before-recv-close` | F105 |
 | `fix/pending-push-kept-until-pp-flush` | F106 |
 | `fix/push-promise-ahead-of-blocked-data` | F107 |
+| `fix/send-reset-pending-open-drops-blocked-data` | F108 |
 
 ## experimental contains
-F1–F107, I1–I2, deadlock stress test, docs.
+F1–F108, I1–I2, deadlock stress test, docs.

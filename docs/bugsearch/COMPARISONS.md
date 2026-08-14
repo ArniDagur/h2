@@ -63,6 +63,13 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F99):** first 1xx opens `HalfClosedLocal(AwaitingHeaders)`.
 - **Verdict:** F99 is an h2 state-machine / counting bug, not a Go mismatch.
 
+### RST_STREAM behind window-blocked DATA (`pending_open`)
+- **RFC 9113 §6.4 / §6.9:** RST is not flow-controlled; it must not be the first frame on idle. DATA is flow-controlled.
+- **Go:** handler cancel typically does not leave a large buffered body in front of RST in the same way (sync write).
+- **Rust h2 (pre-F108):** `send_reset` on `pending_open` kept HEADERS+DATA+RST. Zero stream window parked on DATA; RST never left.
+- **Rust h2 (F108):** drop DATA, send HEADERS then RST. Implicit scheduled reset already discarded DATA (except NO_ERROR).
+- **Verdict:** h2-local cancel hang from the buffered `pending_open` queue.
+
 ### PUSH_PROMISE behind window-blocked DATA
 - **RFC 9113 §6.9:** only DATA is flow-controlled. PP may be interleaved with DATA on the parent.
 - **Go:** handler `Write` is synchronous; a blocked body write typically prevents `Push()` until window arrives. HOL is implicit in the API.

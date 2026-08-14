@@ -602,6 +602,13 @@
 - **Change:** Reject `frame.is_over_size()` at the start of `recv_trailers` (before `recv_close`).
 - **Regression:** `oversize_trailers_after_request_eos_sends_reset`.
 
+### F108 — `send_reset` on `pending_open` RST stuck behind window-blocked DATA
+- **Severity:** Medium (cancel / hang): `send_reset` on `pending_open` keeps HEADERS so RST is not idle (§6.4). It also left already-queued `send_data` in place. After the stream opened, `pop_frame` parked on that DATA when the stream window was 0 (IWS=0, or body larger than the window). F107 only promotes `PushPromise`. Explicit `set_reset` is not `get_scheduled_reset()`, so the implicit-reset DATA discard did not run. Cancel never reached the peer until a WINDOW_UPDATE.
+- **Evidence:** IWS=0, `send_request` + `send_data("hello")` + `send_reset(CANCEL)` before drive. Pre-fix: 2s timeout (DATA+RST still queued). Post-fix: `HEADERS(1)` then `RST_STREAM(1) CANCEL`; PING still works. Existing `reset_before_headers_reaches_peer_without_headers` (no DATA) and F30 scheduled-reset still pass.
+- **Fix branch:** `fix/send-reset-pending-open-drops-blocked-data`
+- **Change:** `drop_data_frames` on the pending_open keep-HEADERS path. `pop_frame` also drops DATA when `state.is_reset()` and no scheduled NO_ERROR (RST remains in the queue).
+- **Regression:** `send_reset_pending_open_does_not_wait_for_data_window`.
+
 ### F107 — `PUSH_PROMISE` stuck behind window-blocked DATA
 - **Severity:** Medium (hang / cancel): RFC 9113 §6.9 flow-controls only DATA. `send_data` then `push_request` queued PP behind the DATA. If the stream window was 0 (`INITIAL_WINDOW_SIZE=0`, or the window already spent), `pop_frame` put DATA back and parked the stream until WINDOW_UPDATE. The child stayed `pending_push`; its HEADERS never flushed. A client that never gives more stream window (not reading the parent body) hung the push forever. Empty DATA still flushed (always sendable); existing `push_request_between_data` hid this.
 - **Evidence:** Client IWS=0, parent 200 + `send_data("hello")` + `push_request` + child 200 EOS. Pre-fix: 2s timeout waiting for PP. Post-fix: `PUSH_PROMISE(1,2)` then `HEADERS(2)` with no WU; parent DATA still withheld. Regression `push_promise_flushes_ahead_of_window_blocked_data`.
