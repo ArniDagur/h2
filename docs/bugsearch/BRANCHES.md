@@ -99,6 +99,7 @@
 | `fix/reserved-pending-open-cancel-sends-rst` | F93 |
 | `fix/pending-push-cancel-drops-headers` | F94 |
 | `fix/pending-push-send-reset-no-slot` | F95 |
+| `fix/drop-queued-push-on-enable-push-zero` | F96 |
 
 ## experimental contains
-F1–F95, I1–I2, deadlock stress test, docs.
+F1–F96, I1–I2, deadlock stress test, docs.

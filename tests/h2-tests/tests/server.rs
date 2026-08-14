@@ -1230,6 +1230,69 @@ async fn send_reset_pending_push_does_not_wait_for_send_slot() {
     join(client, srv).await;
 }
 
+/// RFC 9113 §8.4: a client that disabled push MUST treat a later PUSH_PROMISE
+/// as connection PROTOCOL_ERROR. poll2 applies SETTINGS then poll_complete
+/// writes; a PP queued before ENABLE_PUSH=0 would go out after the flag
+/// flipped (F96).
+#[tokio::test]
+async fn queued_push_promise_not_sent_after_enable_push_zero() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let (queued_tx, queued_rx) = tokio::sync::oneshot::channel::<()>();
+    let (drive_tx, drive_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        queued_rx.await.expect("pp queued");
+        client
+            .send_frame(frames::settings().disable_push())
+            .await;
+        let _ = drive_tx.send(());
+        client.recv_frame(frames::settings_ack()).await;
+        client.send_frame(frames::ping([0x96; 8])).await;
+        let pong = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::ping([0x96; 8]).pong()),
+        )
+        .await
+        .expect("connection died or PUSH_PROMISE sent after ENABLE_PUSH=0");
+        let _ = pong;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (_req, mut stream) = srv.next().await.unwrap().unwrap();
+
+        let _push = stream
+            .push_request(
+                http::Request::builder()
+                    .method("GET")
+                    .uri("https://example.com/a.css")
+                    .body(())
+                    .unwrap(),
+            )
+            .unwrap();
+        let _ = queued_tx.send(());
+        // Do not poll_complete until ENABLE_PUSH=0 is in the pipe, or PP
+        // is written before SETTINGS is applied.
+        drive_rx.await.expect("drive");
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Dropping a promised push stream before `send_response` must still RST after
 /// PUSH_PROMISE is on the wire. While `is_pending_push`, `schedule_send` is a
 /// no-op, so cancel had to be deferred until PUSH_PROMISE is flushed.

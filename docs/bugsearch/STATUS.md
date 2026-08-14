@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-14  
-**Branch tip:** `experimental/bugsearch` (F95)
+**Branch tip:** `experimental/bugsearch` (F96)
 
 ## Current focus
-F95: explicit `send_reset` on `pending_push` waited for a send slot after PP.
+F96: queued PUSH_PROMISE was still written after the client disabled push.
 
 ## Last actions
-1. F94 handled drop (`ScheduledLibraryReset`) on PP pop.
-2. `send_reset` `set_reset`s and queues RST; `schedule_send` no-ops while `pending_push`.
-3. PP pop then `queue_open`'d that child; abort required an empty send queue, so RST waited for a concurrency slot.
-4. Fix: PP pop pushes already-reset children to `pending_send` (no slot). Server `pending_open` abort also treats `is_reset` with queued RST.
-5. Regression: `send_reset_pending_push_does_not_wait_for_send_slot`.
+1. `poll2` applies SETTINGS then `poll_complete` writes pending frames.
+2. `ENABLE_PUSH=0` only cleared `Send::is_push_enabled`; already-queued PP still flushed.
+3. RFC 9113 §8.4: that PP is a connection PROTOCOL_ERROR at the client.
+4. Fix: drop PP at pop and locally cancel the never-sent child.
+5. Regression: `queued_push_promise_not_sent_after_enable_push_zero`.
 
 ## Next recommended step
-1. Package PRs for F3–F95.
+1. Package PRs for F3–F96.
 2. Residual #848 API ready-at-max-open.
 3. Optional test hygiene: S4 stale tests + F29 drain loop.
 4. Next search: fuzz vs Go/nghttp2 or other hang/FC.

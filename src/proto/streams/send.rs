@@ -711,6 +711,7 @@ impl Send {
                 return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
             }
             self.is_push_enabled = val;
+            self.prioritize.push_enabled = val;
         }
 
         Ok(())

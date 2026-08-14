@@ -56,6 +56,10 @@ pub(super) struct Prioritize {
 
     /// The maximum amount of bytes a stream should buffer.
     max_buffer_size: usize,
+
+    /// Peer SETTINGS_ENABLE_PUSH. Queued PUSH_PROMISE must not be written
+    /// after the client disables push (RFC 9113 §6.5.2 / §8.4).
+    pub(super) push_enabled: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -101,6 +105,7 @@ impl Prioritize {
             last_opened_id: StreamId::ZERO,
             in_flight_data_frame: InFlightData::Nothing,
             max_buffer_size: config.local_max_buffer_size,
+            push_enabled: true,
         }
     }
 
@@ -958,6 +963,37 @@ impl Prioritize {
                             }))
                         }
                         Some(Frame::PushPromise(pp)) => {
+                            if !self.push_enabled {
+                                // Client SETTINGS_ENABLE_PUSH=0 was applied
+                                // after we queued this PP. Sending it now is a
+                                // connection PROTOCOL_ERROR (F96).
+                                let promised_id = pp.promised_id();
+                                if let Some(mut pushed) =
+                                    stream.store_mut().find_mut(&promised_id)
+                                {
+                                    pushed.is_pending_push = false;
+                                    while pushed.pending_send.pop_front(buffer).is_some() {}
+                                    pushed.buffered_send_data = 0;
+                                    pushed.requested_send_capacity = 0;
+                                    self.reclaim_all_capacity(&mut pushed, counts, &mut None);
+                                    if !pushed.state.is_closed() {
+                                        pushed.set_reset(Reason::CANCEL, Initiator::Library);
+                                    } else if let Some(reason) =
+                                        pushed.state.get_scheduled_reset()
+                                    {
+                                        pushed.set_reset(reason, Initiator::Library);
+                                    }
+                                    let child_reset = pushed.is_pending_reset_expiration();
+                                    counts.transition_after(pushed, child_reset);
+                                }
+                                if !stream.pending_send.is_empty()
+                                    || stream.state.is_scheduled_reset()
+                                {
+                                    self.pending_send.push(&mut stream);
+                                }
+                                counts.transition_after(stream, is_pending_reset);
+                                continue;
+                            }
                             let mut pushed =
                                 stream.store_mut().find_mut(&pp.promised_id()).unwrap();
                             pushed.is_pending_push = false;

@@ -166,6 +166,12 @@
 - **Fix branch:** `fix/poll-reset-after-end-stream`
 - **Change:** `Closed(EndStream)` → `Err(UserError::InactiveStreamId)`; docs note clean close does not hang.
 
+### F96 — Queued PUSH_PROMISE still sent after ENABLE_PUSH=0
+- **Severity:** Medium (protocol / connection-kill): `poll2` applies peer SETTINGS then `poll_complete` writes. `apply_remote_settings` only cleared `is_push_enabled`, so a PP queued before `SETTINGS_ENABLE_PUSH=0` was still written. RFC 9113 §8.4: a client that disabled push MUST treat that PP as connection PROTOCOL_ERROR.
+- **Evidence:** Queue PP, then client `SETTINGS` disable_push, then drive. Pre-fix: PP on the wire (mock mismatch on PING). Post-fix: SETTINGS_ACK + PING/PONG, no PP. Regression `queued_push_promise_not_sent_after_enable_push_zero`. New `push_request` after disable still `UserError`.
+- **Fix branch:** `fix/drop-queued-push-on-enable-push-zero`
+- **Change:** `Prioritize::push_enabled` tracks the setting; PP pop discards the frame and the never-sent child (local CANCEL, no RST — peer never saw PP).
+
 ### F95 — Explicit `send_reset` on `pending_push` waits for a send slot
 - **Severity:** Medium (hang / cancellation): F94 residual. Drop uses `ScheduledLibraryReset`; `send_reset` does `set_reset` and queues RST, but `schedule_send` is a no-op while `pending_push`. PP pop only special-cased scheduled reset, so the already-reset child with RST in the buffer went to `queue_open`. Abort required `is_reset && pending_send.is_empty()`, so the RST sat in `pending_open` until a concurrency slot opened. Holding the occupying stream left a reserved peer stream with no RST.
 - **Evidence:** max=1; occupy slot with stream 2; `send_response` + `send_reset(CANCEL)` on stream 4 before flush. Pre-fix: 2s timeout. Post-fix: `RST_STREAM(4) CANCEL` right after PP(4). Regression `send_reset_pending_push_does_not_wait_for_send_slot`. F94 drop path and client-request pending_open HEADERS+RST still wait for a slot.
