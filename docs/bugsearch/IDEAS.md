@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F102 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F103 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -153,14 +153,15 @@
 - PRIORITY id 0 already connection PROTOCOL_ERROR in `framed_read` (not the old TODO-ignore path).
 - F79 DATA-on-pending_open GOAWAY was idle-only for client request HEADERS. Server reserved `pending_open` (PP advertised) still GOAWAY'd DATA — F98 (F92 residual).
 - `recv_headers` on server reserved `pending_open`: still idle GOAWAY. `recv_open` would GOAWAY anyway (no ReservedLocal recv-H). Not hang/FC.
-- F97 does not RST `send_response`'d children whose HEADERS are still in `pending_open` (state left ReservedLocal). RFC SHOULD cancel; client already has PP. Optional, not a hang.
+- F97/`send_response`'d `pending_open` children: hang when another push holds the only send slot — F103.
 - pending_push send `available` stays 0 (`try_assign` skip + `Stream::new` does not assign). Not an I1 hole.
 - Oversize HEADERS+EOS after the other half already EOS: F100 (`is_over_size` before `recv_open`). `recv_too_big_headers` still stale: F36 RST(1) because 40 < `:status` size 42.
 - 1xx on reserved (remote) push stayed reserved and recounted recv streams — F99.
 - Nested PUSH_PROMISE on reserved (remote) / opened push parent was accepted; reserved child not visible via `PushedResponseFuture` (no `push_promises`) and held a reserved slot — F102.
+- F97 residual: `send_response` transitions out of `ReservedLocal` before HEADERS flush; `pending_open` push after advertised PP was not RST on parent cancel (client hang while another push held the send slot) — F103.
 
 ## High priority next
-1. Package PRs for F3–F102.
+1. Package PRs for F3–F103.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

@@ -808,6 +808,89 @@ async fn parent_recv_reset_resets_reserved_push_child() {
     join(client, srv).await;
 }
 
+/// F97 residual: `send_response` leaves `ReservedLocal`, so a child whose
+/// HEADERS sit in `pending_open` (PP already advertised, no send slot) was
+/// not cancelled. Client push future hung until the occupying push finished.
+#[tokio::test]
+async fn parent_reset_resets_pending_open_push_after_send_response() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+    let (pp4_tx, pp4_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(1))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/a.css"),
+            )
+            .await;
+        client.recv_frame(frames::headers(2).response(200)).await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 4).request("GET", "https://example.com/b.css"),
+            )
+            .await;
+        let _ = pp4_tx.send(());
+        client.recv_frame(frames::reset(1).cancel()).await;
+        let frame = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::reset(4).cancel()),
+        )
+        .await
+        .expect("pending_open push child was not RST after parent cancel");
+        let _ = frame;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let a = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/a.css")
+            .body(())
+            .unwrap();
+        let mut push2 = stream.push_request(a).unwrap();
+        let body2 = push2
+            .send_response(http::Response::builder().status(200).body(()).unwrap(), false)
+            .unwrap();
+
+        let b = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/b.css")
+            .body(())
+            .unwrap();
+        let mut push4 = stream.push_request(b).unwrap();
+        let _body4 = push4
+            .send_response(http::Response::builder().status(200).body(()).unwrap(), true)
+            .unwrap();
+
+        tokio::select! {
+            res = pp4_rx => res.unwrap(),
+            _ = srv.next() => panic!("unexpected accept while flushing pushes"),
+        }
+        stream.send_reset(Reason::CANCEL);
+        // Hold stream 2 so it keeps the only send slot; stream 4 cannot open.
+        let _body2 = body2;
+        drop(push2);
+        drop(push4);
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// `try_assign` will give connection send capacity to a `pending_push` child.
 /// If the parent is reset before PP is flushed, `clear_queue` discarded the
 /// child without reclaiming that capacity (F90) — later streams could not send.

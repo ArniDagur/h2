@@ -595,6 +595,14 @@
 - **Change:** First 1xx on `ReservedRemote` transitions to `HalfClosedLocal(AwaitingHeaders)` so later 1xx/final use the existing half-closed path (`initial = false`).
 - **Regression:** `recv_informational_on_reserved_push_then_final`.
 
+### F103 — Parent reset skips `pending_open` push after `send_response`
+- **Severity:** Medium (cancel / hang): F97 only RST'd `ReservedLocal` children. `send_response` calls `send_open` (ReservedLocal → HalfClosedRemote) before HEADERS leave `pending_open`. With `MAX_CONCURRENT_STREAMS` already full, PP is advertised but push HEADERS never flush. Parent cancel left the client push future parked until the occupying push finished (or forever if it never EOS'd).
+- **RFC 9113 §8.4.1:** SHOULD cancel promised requests that have **not yet been sent**.
+- **Evidence:** max concurrent 1; PP+HEADERS stream 2 held open; PP stream 4 queued; parent CANCEL: post-fix `RST_STREAM(4)` within 2s. Pre-fix mock timed out. Unsent PP still discarded without RST (`parent_reset_discards_unsent_push_promise_child`). Already-opened pushes still left alone.
+- **Fix branch:** `fix/parent-reset-pending-open-push`
+- **Change:** `reset_reserved_push_children` / `schedule_reset_reserved_push_children` also RST `is_pending_open` children (F93 advertised-push abort emits RST without a slot).
+- **Regression:** `parent_reset_resets_pending_open_push_after_send_response`.
+
 ### F102 — PUSH_PROMISE on reserved (remote) / push parent accepted
 - **Severity:** Medium (protocol / resource): RFC 9113 §6.6 allows PUSH_PROMISE only on peer-initiated open / half-closed (remote) streams. §5.1 reserved (remote) may receive only HEADERS, RST_STREAM, or PRIORITY. Nested `PP(2, 4)` after `PP(1, 2)` was stored as another reserved stream. `PushedResponseFuture` does not expose `push_promises`, so the child occupied a reserved slot (F26 budget) until the parent push handle dropped. Pre-fix the connection stayed up (mock waited forever for GOAWAY).
 - **Evidence:** `PP(1,2)` then `PP(2,4)`: pre-fix stream 4 reserved, no GOAWAY; post-fix `GOAWAY PROTOCOL_ERROR`. Valid `PP(1,2)` still delivered (`recv_push_works`).

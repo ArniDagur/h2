@@ -106,6 +106,7 @@
 | `fix/oversize-headers-eos-before-recv-open` | F100 |
 | `fix/poll-trailers-reset-with-buffered-data` | F101 |
 | `fix/push-promise-on-reserved-remote` | F102 |
+| `fix/parent-reset-pending-open-push` | F103 |
 
 ## experimental contains
-F1–F102, I1–I2, deadlock stress test, docs.
+F1–F103, I1–I2, deadlock stress test, docs.

@@ -383,7 +383,11 @@ impl Send {
         );
         for id in ids {
             if let Some(mut child) = parent.store_mut().find_mut(&id) {
-                if child.state.is_reserved_local() {
+                // ReservedLocal: no send_response yet. pending_open: send_response
+                // already transitioned the state, but push HEADERS are not on
+                // the wire (no send slot). RFC 9113 §8.4.1 SHOULD cancel
+                // promised requests that have not yet been sent (F97 residual).
+                if child.state.is_reserved_local() || child.is_pending_open {
                     self.send_reset(
                         Reason::CANCEL,
                         Initiator::Library,
@@ -414,7 +418,7 @@ impl Send {
         );
         for id in ids {
             if let Some(mut child) = parent.store_mut().find_mut(&id) {
-                if child.state.is_reserved_local() {
+                if child.state.is_reserved_local() || child.is_pending_open {
                     self.schedule_implicit_reset(&mut child, Reason::CANCEL, counts, task);
                 }
             }
