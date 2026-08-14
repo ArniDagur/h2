@@ -96,6 +96,7 @@
 - Explicit `send_reset` on `pending_push` `queue_open`'d the RST and waited for a concurrency slot — F95.
 - Queued PUSH_PROMISE flushed after peer SETTINGS_ENABLE_PUSH=0 (poll2 applies then poll_complete writes) — F96.
 - Queued PP after *receiving* GOAWAY with last < promised id: RFC §6.8 is SHOULD NOT initiate; the GOAWAY sender **ignores** frames on streams > last (not PROTOCOL_ERROR like F96). `send_request` already `ensure_no_conn_error`. `push_request` does not check `send.max_stream_id` — optional hardening, not hang/FC.
+- Parent reset after advertised PP did not RST reserved children — F97.
 - `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
 - F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
 - Local MAX_CONCURRENT_STREAMS ACK timing: already applied at Connection::new from builder.
@@ -135,9 +136,10 @@
 - PUSH_PROMISE on a parent that is already `Closed(Error::Reset)`: `ensure_recv_open` `?` returns the parent's remote Reset. `handle_poll2_result` does not echo remote RST and does not GOAWAY. PP is dropped, promised id is never `open`ed. Follow-up push HEADERS is a new even id with `Open::Headers` → client `ensure_can_open` GOAWAYs PROTOCOL_ERROR. RFC §6.6 would GOAWAY on the PP itself. Leniency / delayed connection-kill, not hang/FC.
 - `ignore_data` releases connection capacity with `task=None`. It only runs on the read path (`poll2`); `poll_complete` after `poll_next` Pending emits WU. Same “in-poll2 reclaim” class as peer RST vs F76.
 - Remote GOAWAY with `last_stream_id >= pending_open` id left `poll_ready` parked (`open_task` only notified via `handle_error` for `id > last`) — F89.
+- Parent reset after advertised PP left reserved children without RST (client push future hung until child handle drop) — F97.
 
 ## High priority next
-1. Package PRs for F3–F96.
+1. Package PRs for F3–F97.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority
