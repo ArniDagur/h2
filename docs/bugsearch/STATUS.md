@@ -4,12 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F105)
 
 ## Current focus
-F105: oversize trailers skipped the F100 `is_over_size` check.
+No new hang/FC. Rechecked F105 siblings and reserved-state WU / in-flight SETTINGS.
 
 ## Last actions
-1. Trailer HEADERS use `recv_trailers`, not `recv_headers`/`recv_open`.
-2. After request EOS, `recv_close` fully closed the stream; oversize trailers were delivered and RST would no-op.
-3. Reject `is_over_size` before `recv_close`. Valid trailers tests still pass.
+1. Oversize 1xx / request HEADERS already use `recv_headers` `is_over_size` (F100). Oversize PP already RST's promised id.
+2. WINDOW_UPDATE on reserved (remote): `is_send_closed` → recv_stream_window_update no-ops (no inc). RFC §5.1 MUST conn PROTOCOL_ERROR; same leniency class as reserved DATA → STREAM_CLOSED (Go). Not hang/FC.
+3. SETTINGS IWS decrease while a large DATA is in-flight: `push_back_frame` may leave the remainder off send/capacity queues when stream window is 0. Recovery is stream WU / later SETTINGS increase via `try_assign` (same wait-for-WU as F30).
 
 ## Next recommended step
 1. Package PRs for F3–F105.

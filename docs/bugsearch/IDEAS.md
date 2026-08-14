@@ -132,7 +132,9 @@
 - `PingPong::poll_pong` after `Connection::poll` Ready: `UserPingsRx` only marks CLOSED on Drop. Standard `spawn(conn.await)` drops Connection and wakes pong. Hanging requires retaining a finished Connection — same class as not driving the connection.
 - Peer SETTINGS `MAX_CONCURRENT_STREAMS=0` abort is in `buffer_pending`, not `poll_ready`. `poll2` applies settings then keeps reading; abort runs when `poll2` is Pending and `poll_complete` runs. Flood delays F15, does not hang forever.
 - Interleaved frames during CONTINUATION: `decode_frame` GOAWAYs if `partial` is set and kind ≠ CONTINUATION (includes Unknown). SETTINGS cannot shrink the HPACK table mid-block.
-- WINDOW_UPDATE on reserved (remote) (promised id before push HEADERS) is accepted. RFC §5.1 reserved (remote) allows only HEADERS/RST/PRIORITY on receive. Same leniency as reserved DATA → STREAM_CLOSED (Go-like); not hang/FC.
+- WINDOW_UPDATE on reserved (remote): `recv_stream_window_update` returns early (`ReservedRemote` is send-closed, no buffered DATA) — increment is ignored, not applied. RFC §5.1 MUST conn PROTOCOL_ERROR; same Go-like leniency as reserved DATA → STREAM_CLOSED. Not hang/FC (we never send on reserved remote / half-closed local).
+- Oversize 1xx / first HEADERS already F100; oversize PP RST's promised id; oversize trailers F105.
+- SETTINGS IWS decrease + in-flight partial DATA: remainder may sit off both send queues while stream window is 0; stream WU / SETTINGS increase `try_assign` reschedules. Wait-for-WU, not lost-wakeup.
 - `schedule_implicit_reset` does not wake `send_task`. `poll_reset`/`poll_capacity` need `&mut SendStream`; implicit RST is F81/`maybe_cancel` after send refs (or all refs) are gone. No parked waiter.
 - PUSH_PROMISE on a parent that is already `Closed(Error::Reset)`: `ensure_recv_open` `?` returns the parent's remote Reset. `handle_poll2_result` does not echo remote RST and does not GOAWAY. PP is dropped, promised id is never `open`ed. Follow-up push HEADERS is a new even id with `Open::Headers` → client `ensure_can_open` GOAWAYs PROTOCOL_ERROR. RFC §6.6 would GOAWAY on the PP itself. Leniency / delayed connection-kill, not hang/FC.
 - `ignore_data` releases connection capacity with `task=None`. It only runs on the read path (`poll2`); `poll_complete` after `poll_next` Pending emits WU. Same “in-poll2 reclaim” class as peer RST vs F76.
@@ -161,6 +163,8 @@
 - F97 residual: `send_response` transitions out of `ReservedLocal` before HEADERS flush; `pending_open` push after advertised PP was not RST on parent cancel (client hang while another push held the send slot) — F103.
 - `push_request` after remote GOAWAY with last < next promised id — F104.
 - Oversize trailer HEADERS skipped `is_over_size` (F100 only covered `recv_headers`) — F105.
+- Oversize 1xx / first HEADERS already F100; oversize PP RST's promised id.
+- SETTINGS IWS decrease + in-flight partial DATA: remainder may sit off both send queues while stream window is 0; stream WU / SETTINGS increase `try_assign` reschedules. Wait-for-WU, not lost-wakeup.
 
 ## High priority next
 1. Package PRs for F3–F105.
