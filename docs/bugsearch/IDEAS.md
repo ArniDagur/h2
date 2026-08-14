@@ -173,6 +173,8 @@
 - I1 sums send `available` via `ids` only; I2 must walk slab (unlink + live RecvStream). No reachable leftover send assignment on unlinked streams: first HEADERS+EOS has `available==0`; body/trailers EOS and F77 reclaim. Not an I1 hole.
 - `release_capacity` / queue_frame wake `actions.task`. Set on `poll_complete` Complete; CodecFull does not clear it. User `send_data` may `take` the task but that path already woke. Recv WU is not a F76-style missed wake.
 - `assign_connection_capacity` `continue`s when a `pending_capacity` stream is no longer send-streaming (reset/closed). `pop` clears the queue flag; `transition_after` waits until `recv_eof`/another touch. Delayed slab reap only.
+- `poll_accept` parks only after `poll_closed` Pending (wakers already registered). Closed connection returns `None` without draining `pending_accept` (existing TODO / not a hang).
+- SETTINGS ACK + non-zero length: we GOAWAY `PROTOCOL_ERROR`; RFC/Go/nghttp2 use `FRAME_SIZE_ERROR`. Reason-code nit only.
 
 ## High priority next
 1. Package PRs for F3–F106.

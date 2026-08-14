@@ -4,11 +4,11 @@
 **Branch tip:** `experimental/bugsearch` (F106)
 
 ## Current focus
-No new hang/FC. Rechecked recv WU wake and pending_capacity evict.
+No new hang/FC. Rechecked poll_accept waker and SETTINGS ACK framing.
 
 ## Last actions
-1. `release_capacity` wakes `actions.task`. `poll_complete` sets that task on Complete; CodecFull parks on the write waker. Parked-on-read after Complete has `task=Some`. send_data `take`s the task but already woke the connection.
-2. `assign_connection_capacity` evicts closed streams from `pending_capacity` without `transition_after` (delayed slab reap). `recv_eof` `clear_pending_capacity` reaps. Not a waiter hang/FC leak.
+1. `poll_accept` drives via `poll_closed` (registers read/write/`actions.task`). `pending_accept` push happens in the same `poll2` as the HEADERS; `next_incoming` is checked after. Not a missed accept wake.
+2. SETTINGS ACK with non-empty payload is `PROTOCOL_ERROR` (load maps all SETTINGS errors that way). RFC 9113 §6.5.1 is `FRAME_SIZE_ERROR`. Spec code mismatch, not hang/FC.
 
 ## Next recommended step
 1. Package PRs for F3–F106.
