@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (F97)
 
 ## Current focus
-No new hang/FC this fire. Checked F97 residuals + client parent-RST cancel.
+No new hang/FC this fire. Re-checked `has_streams` idle close and recv PP vs our GOAWAY.
 
 ## Last actions
-1. Client auto-error of `ReservedRemote` children on parent RST is **wrong**: HEADERS may still be in flight after parent RST (queue order: parent RST then child HEADERS).
-2. F97 `Send::send_reset` skips `enqueue_reset_expiration`; forgotten-stream path still ignores late WU/RST and STREAM_CLOSED for late HEADERS/DATA.
-3. `schedule_implicit_reset` on F97 children still relies on RST pop `set_reset` to wake `poll_reset` (spawned connection). Same class as other implicit RST.
+1. `has_streams()` still omits `num_pending_open`, but `Connection::poll` runs `poll_complete` before the idle/`error` GOAWAY. Remaining `pending_open` implies `!can_inc` ⇒ open send streams ⇒ `has_streams` true. Reconfirmed, not a hang.
+2. `recv_push_promise` checks parent id vs `recv.max_stream_id`, not `promised_id`. HEADERS on the promised id would be ignored (`id > max`). Client has no graceful-GOAWAY-while-parent-open API, so PP cannot arrive after our GOAWAY with a live parent. Unreachable hang; optional check only.
+3. DATA/HEADERS/PP stream 0 already rejected at frame load.
 
 ## Next recommended step
 1. Package PRs for F3–F97.
 2. Residual #848 API ready-at-max-open.
-3. Optional: reject `push_request` / drop queued PP when `promised_id > send.max_stream_id`.
+3. Optional: reject `push_request` / drop queued PP when `promised_id > send.max_stream_id`; optionally ignore PP when `promised_id > recv.max_stream_id`.
 4. Next search: fuzz vs Go/nghttp2 or other hang/FC.
 
 ## Blockers
