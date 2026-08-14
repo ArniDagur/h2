@@ -793,6 +793,27 @@ impl Prioritize {
         }
     }
 
+    /// Drop queued DATA only. Used when `send_reset` must keep HEADERS (and
+    /// PP) on `pending_open` so RST is not idle, but must not leave
+    /// flow-controlled DATA ahead of that RST.
+    pub fn drop_data_frames<B>(
+        &mut self,
+        buffer: &mut Buffer<Frame<B>>,
+        stream: &mut store::Ptr,
+    ) {
+        let mut keep = Vec::new();
+        while let Some(frame) = stream.pending_send.pop_front(buffer) {
+            if matches!(frame, Frame::Data(_)) {
+                continue;
+            }
+            keep.push(frame);
+        }
+        stream.buffered_send_data = 0;
+        for frame in keep {
+            stream.pending_send.push_back(buffer, frame);
+        }
+    }
+
     pub fn clear_pending_send(&mut self, store: &mut Store, counts: &mut Counts) {
         while let Some(mut stream) = self.pending_send.pop(store) {
             let is_pending_reset = stream.is_pending_reset_expiration();
@@ -858,6 +879,20 @@ impl Prioritize {
                                     self.pending_send.push(&mut stream);
                                     continue;
                                 }
+                            } else if stream.state.is_reset() {
+                                // Explicit send_reset already queued RST after
+                                // DATA (pending_open keeps HEADERS). Do not
+                                // wait for window; drop this DATA and emit RST.
+                                stream.buffered_send_data = stream
+                                    .buffered_send_data
+                                    .saturating_sub(frame.payload().remaining());
+                                if !stream.pending_send.is_empty()
+                                    || stream.state.is_scheduled_reset()
+                                {
+                                    self.pending_send.push(&mut stream);
+                                }
+                                counts.transition_after(stream, is_pending_reset);
+                                continue;
                             }
 
                             // Get the amount of capacity remaining for stream's

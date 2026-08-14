@@ -3329,6 +3329,60 @@ async fn reset_before_headers_reaches_peer_without_headers() {
     join(srv, client).await;
 }
 
+/// `send_reset` on `pending_open` keeps HEADERS so RST is not idle. It also
+/// used to keep already-queued DATA. With stream window 0 that DATA parked
+/// the stream and RST never flushed (cancel hang). Drop DATA; send HEADERS
+/// then RST.
+#[tokio::test]
+async fn send_reset_pending_open_does_not_wait_for_data_window() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv
+            .assert_client_handshake_with_settings(frames::settings().initial_window_size(0))
+            .await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("POST", "https://example.com/"),
+        )
+        .await;
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            srv.recv_frame(frames::reset(1).cancel()),
+        )
+        .await
+        .expect("RST_STREAM must not wait for stream WINDOW_UPDATE");
+        srv.send_frame(frames::ping([0x98; 8])).await;
+        srv.recv_frame(frames::ping([0x98; 8]).pong()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+        // Do not drive the connection between these calls: stream stays
+        // pending_open, so send_reset keeps HEADERS (and used to keep DATA).
+        let (_resp, mut send) = client.send_request(request, false).unwrap();
+        send.send_data(Bytes::from_static(b"hello"), false)
+            .expect("send_data");
+        send.send_reset(Reason::CANCEL);
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            conn.drive(ready(())).await;
+            let _ = conn.await;
+        })
+        .await
+        .expect("client connection hung waiting to flush RST");
+    };
+
+    join(srv, client).await;
+}
+
 const SETTINGS: &[u8] = &[0, 0, 0, 4, 0, 0, 0, 0, 0];
 const SETTINGS_ACK: &[u8] = &[0, 0, 0, 4, 1, 0, 0, 0, 0];
 

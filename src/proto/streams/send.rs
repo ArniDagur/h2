@@ -309,7 +309,10 @@ impl Send {
                 }
                 return;
             }
-            // Keep HEADERS; queue RST below.
+            // Keep HEADERS (and PP) so RST is not the first frame on an idle
+            // id. Drop DATA: it is flow-controlled and would park RST until a
+            // WINDOW_UPDATE that cancel does not need (F108).
+            self.prioritize.drop_data_frames(buffer, stream);
         } else {
             // Drop any buffered DATA/HEADERS and only send the reset.
             //
