@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F105 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F106 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -165,9 +165,11 @@
 - Oversize trailer HEADERS skipped `is_over_size` (F100 only covered `recv_headers`) — F105.
 - Oversize 1xx / first HEADERS already F100; oversize PP RST's promised id.
 - SETTINGS IWS decrease + in-flight partial DATA: remainder may sit off both send queues while stream window is 0; stream WU / SETTINGS increase `try_assign` reschedules. Wait-for-WU, not lost-wakeup.
+- Drop `SendPushedResponse` before PP flush + reset-cap 0 / expired reset / GOAWAY+drop unlinked the child; `pop_frame` unwrap — F106.
+- Queued PP after remote GOAWAY (id > last) still flushes then RST if the child stayed (`is_pending_push`). Peer ignores id > last. Wasteful, not panic/hang.
 
 ## High priority next
-1. Package PRs for F3–F105.
+1. Package PRs for F3–F106.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

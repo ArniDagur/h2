@@ -109,6 +109,7 @@
 | `fix/parent-reset-pending-open-push` | F103 |
 | `fix/push-request-after-remote-goaway` | F104 |
 | `fix/oversize-trailers-before-recv-close` | F105 |
+| `fix/pending-push-kept-until-pp-flush` | F106 |
 
 ## experimental contains
-F1–F105, I1–I2, deadlock stress test, docs.
+F1–F106, I1–I2, deadlock stress test, docs.

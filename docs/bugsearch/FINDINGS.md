@@ -602,6 +602,13 @@
 - **Change:** Reject `frame.is_over_size()` at the start of `recv_trailers` (before `recv_close`).
 - **Regression:** `oversize_trailers_after_request_eos_sends_reset`.
 
+### F106 — Cancelled `pending_push` child reaped before PUSH_PROMISE flush
+- **Severity:** High (panic): Dropping `SendPushedResponse` before PP leaves the parent queue sets `ScheduledLibraryReset` on the child (`is_pending_push`). `transition_after` then **unlinked** the id map whenever the stream was closed and not on the reset-expiration queue. That happens immediately when `enqueue_reset_expiration` is refused (`max_concurrent_reset_streams=0`), after `reset_stream_duration` expires (default 1s; `poll2` reaps before `poll_complete`), or after remote GOAWAY `handle_error` + handle drop (already `Closed`, no `reset_at`). `pop_frame` then `unwrap()`'d `find_mut(promised_id)` for the still-queued PP.
+- **Evidence:** `max_concurrent_reset_streams(0)`, `push_request` + drop, then parent 200: pre-fix panic at `find_mut(...).unwrap()`. Post-fix same as F18: `PUSH_PROMISE(1,2)` then `RST_STREAM(2) CANCEL`, parent 200. Defense: missing child discards PP (never advertised).
+- **Fix branch:** `fix/pending-push-kept-until-pp-flush`
+- **Change:** Do not `unlink` / `is_released` while `is_pending_push`. `pop_frame` treats a missing promised id as discard (F96-style).
+- **Regression:** `drop_pending_push_when_reset_cap_zero_does_not_panic`.
+
 ### F104 — `push_request` after remote GOAWAY still reserved a promised id
 - **Severity:** Medium (cancel / hang): After `recv_go_away`, `send.max_stream_id` is the peer's last-stream-id. `send_request` already fails via `conn_error`. `push_request` still called `reserve_local` and queued PP. The GOAWAY sender **ignores** frames on streams > last (RFC 9113 §6.8): push HEADERS/DATA get no RST/WU, so `send_data` / the client's push future stall. Existing advertised children `id > last` are already `handle_error`'d on the GOAWAY path.
 - **Evidence:** Client GOAWAY(last=1) then `push_request`: post-fix `UserError::Rejected`; no PP on the wire; parent 200 still sent. Pre-fix PP(1,2) would flush into a black hole.
