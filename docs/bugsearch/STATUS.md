@@ -4,17 +4,17 @@
 **Branch tip:** `experimental/bugsearch` (F108)
 
 ## Current focus
-F108: `send_reset` on `pending_open` hung behind window-blocked DATA.
+No new hang/FC. Last-DATA+EOS drop vs codec reclaim (F106-class) is safe.
 
 ## Last actions
-1. F107 residual: explicit RST is not scheduled-reset and was not promoted.
-2. `pending_open` `send_reset` now drops DATA (keeps HEADERS); `pop_frame` drops DATA when already `is_reset`.
-3. Regression `send_reset_pending_open_does_not_wait_for_data_window` passes; pre-fix 2s timeout.
+1. `transition_after` unlinks/removes on last DATA+EOS when `ref_count==0`.
+2. `reclaim_frame` only `resolve`s when `last_data_frame` still has payload. Codec sets that slot only after the frame is fully written (`remaining==0`), so resolve is a no-op. Large DATA sits in `encoder.next` until then.
+3. Drop-handles + 16KiB DATA+EOS + write backpressure flushed without panic.
 
 ## Next recommended step
 1. Package PRs for F3–F108.
 2. Residual #848 API ready-at-max-open.
-3. Next search: fuzz vs Go/nghttp2 or other hang/FC.
+3. Next search: fuzz vs Go/nghttp2 or other hang/FC (not F107/F108 HOL or this reclaim path).
 
 ## Blockers
 None.

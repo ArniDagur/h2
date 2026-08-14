@@ -185,6 +185,7 @@
 - I1 `pending_push` available: `Stream::new` does not `assign_capacity` on send flow; only `try_assign` assigns and it skips `pending_push`. No extra I1 check needed.
 - `PUSH_PROMISE` queued behind window-blocked parent DATA (`send_data` then `push_request`, IWS=0 or window already spent) never flushed; child stayed `pending_push` — F107. Trailers must still wait for DATA.
 - `send_reset` on `pending_open` kept DATA; RST parked until WU (F107 only promoted PP; explicit reset is not scheduled) — F108.
+- Last DATA+EOS + drop all handles: `is_closed` unlinks/removes before codec flush. `last_data_frame` is only set after the payload is fully written (`remaining==0`); reclaim does not `resolve`. Large frames stay in `encoder.next` (no dangling-key panic). Drop+16KiB+backpressure flushed. Not F106-class.
 
 ## High priority next
 1. Package PRs for F3–F108.
