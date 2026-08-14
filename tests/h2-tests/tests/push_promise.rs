@@ -825,3 +825,67 @@ async fn recv_informational_on_reserved_push_then_final() {
 
     join(mock, h2).await;
 }
+
+/// RFC 9113 §5.1 reserved (remote): only HEADERS / RST_STREAM / PRIORITY.
+/// §6.6: PUSH_PROMISE only on peer-initiated open / half-closed (remote).
+///
+/// Nested PP(2, 4) after PP(1, 2) was accepted: stream 4 was reserved and
+/// queued on the push parent. `PushedResponseFuture` does not expose
+/// `push_promises`, so the child occupied a reserved slot until the parent
+/// handle dropped (F26 leak). Must be connection PROTOCOL_ERROR.
+#[tokio::test]
+async fn recv_push_promise_on_reserved_remote_is_conn_error() {
+    h2_support::trace_init!();
+
+    let (io, mut srv) = mock::new();
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://http2.akamai.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(1, 2).request("GET", "https://http2.akamai.com/style.css"),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(2, 4).request("GET", "https://http2.akamai.com/other.css"),
+        )
+        .await;
+        srv.recv_frame(frames::go_away(0).protocol_error()).await;
+    };
+
+    let h2 = async move {
+        let (mut client, h2) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("https://http2.akamai.com/")
+            .body(())
+            .unwrap();
+
+        let req = async move {
+            let res = client.send_request(request, true).unwrap().0.await;
+            let err = res.unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "connection error detected: unspecific protocol error detected"
+            );
+        };
+
+        let conn = async move {
+            let res = h2.await;
+            let err = res.unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "connection error detected: unspecific protocol error detected"
+            );
+        };
+
+        join(conn, req).await;
+    };
+
+    join(mock, h2).await;
+}

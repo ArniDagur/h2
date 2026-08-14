@@ -944,6 +944,30 @@ impl Inner {
                     return Ok(());
                 }
 
+                // Client pending_open: request HEADERS never left; peer still
+                // sees idle. RFC 9113 §5.1: frames other than HEADERS/PRIORITY
+                // on idle are a connection PROTOCOL_ERROR.
+                if stream.is_pending_open {
+                    proto_err!(conn: "recv_push_promise: received frame on idle stream {:?}", id);
+                    return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+                }
+
+                // RFC 9113 §6.6: PUSH_PROMISE only on peer-initiated streams
+                // (open / half-closed remote from the sender). The receiver
+                // therefore only accepts PP on streams it initiated.
+                // Reserved (remote) and opened push parents are server-initiated:
+                // §5.1 reserved (remote) allows only HEADERS/RST/PRIORITY;
+                // nested PP reserved a child the public API cannot poll
+                // (`PushedResponseFuture` has no `push_promises`) and held a
+                // reserved slot until the parent handle dropped (F26 leak).
+                if !self.counts.peer().is_local_init(id) {
+                    proto_err!(
+                        conn: "recv_push_promise: parent {:?} is not locally initiated",
+                        id
+                    );
+                    return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
+                }
+
                 // The stream must be receive open
                 if !stream.state.ensure_recv_open(stream.id)? {
                     proto_err!(conn: "recv_push_promise: initiating stream is not opened");

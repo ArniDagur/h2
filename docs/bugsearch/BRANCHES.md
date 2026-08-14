@@ -105,6 +105,7 @@
 | `fix/informational-on-reserved-remote-push` | F99 |
 | `fix/oversize-headers-eos-before-recv-open` | F100 |
 | `fix/poll-trailers-reset-with-buffered-data` | F101 |
+| `fix/push-promise-on-reserved-remote` | F102 |
 
 ## experimental contains
-F1–F101, I1–I2, deadlock stress test, docs.
+F1–F102, I1–I2, deadlock stress test, docs.

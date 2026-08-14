@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F101 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F102 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -157,9 +157,10 @@
 - pending_push send `available` stays 0 (`try_assign` skip + `Stream::new` does not assign). Not an I1 hole.
 - Oversize HEADERS+EOS after the other half already EOS: F100 (`is_over_size` before `recv_open`). `recv_too_big_headers` still stale: F36 RST(1) because 40 < `:status` size 42.
 - 1xx on reserved (remote) push stayed reserved and recounted recv streams — F99.
+- Nested PUSH_PROMISE on reserved (remote) / opened push parent was accepted; reserved child not visible via `PushedResponseFuture` (no `push_promises`) and held a reserved slot — F102.
 
 ## High priority next
-1. Package PRs for F3–F101.
+1. Package PRs for F3–F102.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

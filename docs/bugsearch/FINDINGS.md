@@ -595,6 +595,13 @@
 - **Change:** First 1xx on `ReservedRemote` transitions to `HalfClosedLocal(AwaitingHeaders)` so later 1xx/final use the existing half-closed path (`initial = false`).
 - **Regression:** `recv_informational_on_reserved_push_then_final`.
 
+### F102 — PUSH_PROMISE on reserved (remote) / push parent accepted
+- **Severity:** Medium (protocol / resource): RFC 9113 §6.6 allows PUSH_PROMISE only on peer-initiated open / half-closed (remote) streams. §5.1 reserved (remote) may receive only HEADERS, RST_STREAM, or PRIORITY. Nested `PP(2, 4)` after `PP(1, 2)` was stored as another reserved stream. `PushedResponseFuture` does not expose `push_promises`, so the child occupied a reserved slot (F26 budget) until the parent push handle dropped. Pre-fix the connection stayed up (mock waited forever for GOAWAY).
+- **Evidence:** `PP(1,2)` then `PP(2,4)`: pre-fix stream 4 reserved, no GOAWAY; post-fix `GOAWAY PROTOCOL_ERROR`. Valid `PP(1,2)` still delivered (`recv_push_works`).
+- **Fix branch:** `fix/push-promise-on-reserved-remote`
+- **Change:** `recv_push_promise` GOAWAYs when the parent is `pending_open` (idle) or not locally initiated (push / reserved-remote parent).
+- **Regression:** `recv_push_promise_on_reserved_remote_is_conn_error`.
+
 ### F97 — Parent reset does not RST advertised reserved push children
 - **Severity:** Medium (cancel / hang): RFC 9113 §8.4.1: if the original request is cancelled, the server SHOULD cancel promised requests that have not yet been sent. F19 only discarded *unsent* PUSH_PROMISE children. After PP was on the wire, parent `send_reset` / client RST of the parent left the child `ReservedLocal`. The client push `ResponseFuture` hung until the server dropped `SendPushedResponse` (F18).
 - **Evidence:** PP(1,2) flushed, hold child handle, parent CANCEL: post-fix `RST_STREAM(1)` then `RST_STREAM(2)`. Client RST(1) after PP: `RST_STREAM(2)`. Unsent PP still discarded without RST(2) (`parent_reset_discards_unsent_push_promise_child`). Children that already `send_response`'d (not reserved) are left alone.

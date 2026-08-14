@@ -63,6 +63,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F99):** first 1xx opens `HalfClosedLocal(AwaitingHeaders)`.
 - **Verdict:** F99 is an h2 state-machine / counting bug, not a Go mismatch.
 
+### PUSH_PROMISE on reserved (remote) / push parent
+- **RFC 9113 §5.1 / §6.6:** reserved (remote) may receive only HEADERS/RST/PRIORITY; PP only on peer-initiated open / half-closed (remote).
+- **Rust h2 (pre-F102):** `ensure_recv_open` is true for `ReservedRemote` and `HalfClosedLocal` (opened push), so nested `PP(2, 4)` was stored.
+- **Rust h2 (F102):** parent must be locally initiated and not `pending_open`.
+- **Verdict:** F102 is an h2 accept-too-much bug vs the RFC MUST connection PROTOCOL_ERROR.
+
 ### Cap on number of 1xx responses
 - **Go:** `max1xxResponses = 5` when the user does not examine 1xx via trace hook.
 - **Rust h2 (pre-F35):** unlimited queue in `pending_recv`.
