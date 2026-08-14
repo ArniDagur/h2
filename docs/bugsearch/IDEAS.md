@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F97 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F98 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -143,9 +143,17 @@
 - `has_streams()` omits `num_pending_open` on the idle/`conn_error` close path: `poll_complete` runs first and either promotes (slot free) or leaves the queue only when `!can_inc` (open send streams remain). Public `has_streams` can be false between queue and poll; not a waiter hang.
 - `recv_push_promise` ignores only when **parent** id > `recv.max_stream_id`. `promised_id > max` would accept PP then ignore push HEADERS. Needs our GOAWAY then a still-open parent; client has no such API (maybe_close is idle-only). Optional promised-id check.
 - F30 + SETTINGS INITIAL_WINDOW_SIZE=0 after NO_ERROR is scheduled: `pop_frame` may drop the stream off send/capacity queues when `!has_unavailable`. Recovery is stream WU / later SETTINGS increase via `recv_stream_window_update` (not those queues). Same wait-for-WU policy as a live body; not lost-wakeup.
+- GOAWAY-PP promised-id hang needs our GOAWAY + still-open parent + PP accepted (parent ≤ last) then HEADERS ignored (promised > last). h2 client has no graceful/abrupt GOAWAY while streams live. Server `recv.max` is client-initiated. Remote GOAWAY already errors existing push children `id > last`. New `push_request` after GOAWAY is RFC SHOULD NOT / optional reject, not a connection hang.
+- Peer RST `handle_error` reclaim `task=None` is in-poll2; `poll_complete` assigns leftover window. Contrast F76 (user-thread reclaim).
+- SETTINGS max-concurrent increase does not itself wake `open_task`; `poll_send` applies then the same poll’s `poll_complete` `pop_pending_open` (which `notify_open`).
+- `FlowControl` **is** `Clone` (F80 text said it was not). RecvStream drop still auto-releases in_flight; a leftover clone cannot double-release.
+- `send_data` 0-length EOS on `pending_open`: `try_assign` may return early, but `pop_pending_open` always `pending_send.push_front` before assign, so HEADERS/empty DATA still flush.
+- Local SETTINGS `INITIAL_WINDOW_SIZE` decrease applied on ACK: in-flight DATA can exceed the new (floored) stream window → RST FLOW_CONTROL_ERROR. Go `inflow.take` same. RFC §6.9 MAY. Not fix-worthy.
+- PRIORITY id 0 already connection PROTOCOL_ERROR in `framed_read` (not the old TODO-ignore path).
+- F79 DATA-on-pending_open GOAWAY was idle-only for client request HEADERS. Server reserved `pending_open` (PP advertised) still GOAWAY'd DATA — F98 (F92 residual).
 
 ## High priority next
-1. Package PRs for F3–F97.
+1. Package PRs for F3–F98.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

@@ -9,6 +9,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2:** adjusts open send streams; skips `is_send_closed() && buffered_send_data == 0` (no further DATA). On decrease, reclaims connection-assigned capacity when `available > window_size` (as_size floors negatives) and reassigns via `pending_capacity`.
 - **Verdict:** difference is h2's internal connection-capacity assignment model, not a clear RFC violation. Multi-stream reclaim of connection assignment on decrease works; F6 was an h2-only waiter bug on top of that path (`poll_capacity` / `send_capacity_inc`), not a Go/nghttp2 mismatch. Underflow of `i32` window on extreme SETTINGS still maps to FLOW_CONTROL_ERROR (TODO in `send.rs`).
 
+### Local SETTINGS_INITIAL_WINDOW_SIZE decrease vs in-flight DATA (recv)
+- **Race:** we write SETTINGS decrease, apply on ACK (`dec_recv_window`). DATA the peer sent under the old window can arrive after the window is already shrunk (or negative). `recv_data` uses `window_size()` which floors negatives to 0, so any `sz > 0` becomes FLOW_CONTROL_ERROR.
+- **Go:** `inflow.take` fails when `avail < n` and returns stream FLOW_CONTROL_ERROR.
+- **RFC 9113 §6.9:** receiver MAY stream or connection error if unable to accept. Negative windows are a sender obligation after *they* process SETTINGS.
+- **Verdict:** match Go / allowed by spec. Not a fix-worthy h2 bug.
+
 ### Local SETTINGS_INITIAL_WINDOW_SIZE increase timing (recv)
 - **Go:** on *receipt* of peer SETTINGS, adjusts send windows immediately (`processSettingInitialWindowSize`). Dynamic local recv expansion is not a separate public API path in the same way.
 - **Rust h2 (pre-F10):** applied local INITIAL_WINDOW_SIZE changes only on SETTINGS_ACK → race if peer sent under new window first.
@@ -36,7 +42,8 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F23):** stream STREAM_CLOSED + `ignore_data` (connection FC); forgotten streams already STREAM_CLOSED. Idle not-in-store still connection PROTOCOL_ERROR.
 - **Rust h2 (pre-F79):** `pending_open` is in the store (never sent) so F23 treated DATA as STREAM_CLOSED; peer still sees idle.
 - **Rust h2 (F79):** `pending_open` DATA → connection PROTOCOL_ERROR (same as HEADERS/RST/WU on that id).
-- **Verdict:** F23 aligns with Go/RFC for late DATA after EOS; F79 aligns idle/pending_open with Go/RFC §5.1.
+- **Rust h2 (F98):** server `pending_open` after advertised PP is reserved, not idle. DATA uses F23 STREAM_CLOSED (F92 already exempted WU/RST). Client never-sent pending_open still GOAWAYs.
+- **Verdict:** F23 aligns with Go/RFC for late DATA after EOS; F79 aligns idle client pending_open with Go/RFC §5.1; F98 aligns reserved-push DATA with Go `processData` / §6.1.
 
 ### HEADERS after recv EOS
 - **Go (`processHeaders`):** `stateHalfClosedRemote` → stream STREAM_CLOSED.

@@ -1,20 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-14  
-**Branch tip:** `experimental/bugsearch` (F97)
+**Branch tip:** `experimental/bugsearch` (F98)
 
 ## Current focus
-No new hang/FC this fire. Rechecked F30 + mid-flight SETTINGS window 0.
+F98: DATA on reserved `pending_open` push was idle GOAWAY (F79 residual / F92 gap).
 
 ## Last actions
-1. After implicit NO_ERROR, `pop_frame` with stream capacity 0 and `!has_unavailable` leaves the stream off `pending_send`/`pending_capacity`. A later **stream** WU still `recv_stream_window_update` → `try_assign` (does not need those queues).
-2. Peer SETTINGS `INITIAL_WINDOW_SIZE=0` is the same as “no WU”: F30 only CANCEL at schedule-time window 0; mid-flight still waits. Not a silent queue-loss hang.
-3. `send_reset` reclaim still wakes `actions.task` via `try_assign` when another stream has buffered DATA (F76 class).
+1. F79 GOAWAYs DATA on all `pending_open`. Server push waiting for a send slot is reserved at the peer (PP already sent), not idle — same split F92 used for WU/RST.
+2. `recv_data` now GOAWAYs only `is_pending_open && !peer.is_server()`. Server path uses F23 `STREAM_CLOSED` + `ignore_data`.
+3. Regression `data_on_pending_open_push_is_stream_closed_not_goaway`; client idle DATA still GOAWAYs.
 
 ## Next recommended step
-1. Package PRs for F3–F97.
+1. Package PRs for F3–F98.
 2. Residual #848 API ready-at-max-open.
-3. Optional: GOAWAY-PP `max_stream_id` (send + promised recv).
+3. Optional: reject `push_request` after remote GOAWAY / cap promised id.
 4. Next search: fuzz vs Go/nghttp2 or other hang/FC.
 
 ## Blockers

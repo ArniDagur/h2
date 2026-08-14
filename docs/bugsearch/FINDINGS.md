@@ -565,6 +565,14 @@
 - **Fix branch:** `fix/empty-header-name-stream-error`
 - **Change:** `Header::new("")` → `Header::Malformed` (same stream-RST path as F86).
 
+### F98 — DATA on reserved `pending_open` push treated as idle GOAWAY
+- **Severity:** Medium (protocol / connection-kill): F79 GOAWAYs DATA on every `pending_open` id (peer still sees idle). That is correct for **client** request HEADERS not yet on the wire. After F91/F92 a **server** push can sit in `pending_open` with PUSH_PROMISE already sent — the peer sees reserved (remote), not idle. F92 already exempted WU/RST (`is_pending_open && !peer.is_server()`). DATA still used the idle GOAWAY.
+- **RFC / Go:** §6.1 DATA outside open / half-closed (local) is stream `STREAM_CLOSED`. Go `processData` idle → connection PROTOCOL_ERROR; reserved/not-recv → stream STREAM_CLOSED.
+- **Evidence:** Same setup as F92 (max concurrent 1, PP 2 open, PP 4 queued): DATA on 4 pre-fix killed the connection; post-fix `RST_STREAM(4) STREAM_CLOSED` and a follow-up PING is ACKed. Client idle DATA still GOAWAYs (`frame_on_pending_open_stream_is_conn_error`).
+- **Fix branch:** `fix/data-on-reserved-pending-open-push`
+- **Change:** `Streams::recv_data` idle GOAWAY only when `is_pending_open && !peer.is_server()`. Server reserved path falls through to F23 `ignore_data` + `STREAM_CLOSED`.
+- **Regression:** `data_on_pending_open_push_is_stream_closed_not_goaway`.
+
 ### F97 — Parent reset does not RST advertised reserved push children
 - **Severity:** Medium (cancel / hang): RFC 9113 §8.4.1: if the original request is cancelled, the server SHOULD cancel promised requests that have not yet been sent. F19 only discarded *unsent* PUSH_PROMISE children. After PP was on the wire, parent `send_reset` / client RST of the parent left the child `ReservedLocal`. The client push `ResponseFuture` hung until the server dropped `SendPushedResponse` (F18).
 - **Evidence:** PP(1,2) flushed, hold child handle, parent CANCEL: post-fix `RST_STREAM(1)` then `RST_STREAM(2)`. Client RST(1) after PP: `RST_STREAM(2)`. Unsent PP still discarded without RST(2) (`parent_reset_discards_unsent_push_promise_child`). Children that already `send_response`'d (not reserved) are left alone.
