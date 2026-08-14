@@ -151,6 +151,8 @@
 - Local SETTINGS `INITIAL_WINDOW_SIZE` decrease applied on ACK: in-flight DATA can exceed the new (floored) stream window → RST FLOW_CONTROL_ERROR. Go `inflow.take` same. RFC §6.9 MAY. Not fix-worthy.
 - PRIORITY id 0 already connection PROTOCOL_ERROR in `framed_read` (not the old TODO-ignore path).
 - F79 DATA-on-pending_open GOAWAY was idle-only for client request HEADERS. Server reserved `pending_open` (PP advertised) still GOAWAY'd DATA — F98 (F92 residual).
+- `recv_headers` on server reserved `pending_open`: still idle GOAWAY. `recv_open` would GOAWAY anyway (no ReservedLocal recv-H). Not hang/FC.
+- F97 does not RST `send_response`'d children whose HEADERS are still in `pending_open` (state left ReservedLocal). RFC SHOULD cancel; client already has PP. Optional, not a hang.
 
 ## High priority next
 1. Package PRs for F3–F98.

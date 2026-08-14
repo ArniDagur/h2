@@ -4,12 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F98)
 
 ## Current focus
-F98: DATA on reserved `pending_open` push was idle GOAWAY (F79 residual / F92 gap).
+No new hang/FC. Rechecked remaining `pending_open` idle checks after F98.
 
 ## Last actions
-1. F79 GOAWAYs DATA on all `pending_open`. Server push waiting for a send slot is reserved at the peer (PP already sent), not idle — same split F92 used for WU/RST.
-2. `recv_data` now GOAWAYs only `is_pending_open && !peer.is_server()`. Server path uses F23 `STREAM_CLOSED` + `ignore_data`.
-3. Regression `data_on_pending_open_push_is_stream_closed_not_goaway`; client idle DATA still GOAWAYs.
+1. `recv_headers` still GOAWAYs every `pending_open` id. Exempting server reserved (F98-style) would still GOAWAY: `recv_open` has no ReservedLocal / HalfClosedRemote(send_response) transition. Client HEADERS on a push id is not a hang/FC path.
+2. F97 skips children that already `send_response`'d even if HEADERS are still queued in `pending_open`. RFC §8.4.1 SHOULD cancel unsent promised requests — optional, not a waiter hang (client already has PP).
+3. F98 RST on reserved `pending_open` uses `send_reset` local-discard when `!can_inc`; `abort_closed_pending_open` still emits RST (test passed).
 
 ## Next recommended step
 1. Package PRs for F3–F98.
