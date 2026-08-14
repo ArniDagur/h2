@@ -4,12 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F98)
 
 ## Current focus
-No new hang/FC. Rechecked remaining `pending_open` idle checks after F98.
+No new hang/FC. Rechecked I1 pending_push available and oversize-after-EOS RST.
 
 ## Last actions
-1. `recv_headers` still GOAWAYs every `pending_open` id. Exempting server reserved (F98-style) would still GOAWAY: `recv_open` has no ReservedLocal / HalfClosedRemote(send_response) transition. Client HEADERS on a push id is not a hang/FC path.
-2. F97 skips children that already `send_response`'d even if HEADERS are still queued in `pending_open`. RFC §8.4.1 SHOULD cancel unsent promised requests — optional, not a waiter hang (client already has PP).
-3. F98 RST on reserved `pending_open` uses `send_reset` local-discard when `!can_inc`; `abort_closed_pending_open` still emits RST (test passed).
+1. `try_assign` skips `pending_push`; `Stream::new` send available is 0; SETTINGS inc only grows window. pending_push cannot hoard conn send capacity (I1 only asserts pending_open).
+2. Oversize HEADERS+EOS after request EOS: `is_over_size` runs after `recv_open`, stream is `Closed(EndStream)`, `send_reset` no-ops. User still sees PROTOCOL_ERROR on `poll_response`. F74-class missing RST, not a waiter hang.
+3. Server handshake `initial_max_send_streams=0` is replaced by the first client SETTINGS in `poll` before `accept` can `push_request`.
 
 ## Next recommended step
 1. Package PRs for F3–F98.

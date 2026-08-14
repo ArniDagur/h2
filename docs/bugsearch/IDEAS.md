@@ -153,6 +153,8 @@
 - F79 DATA-on-pending_open GOAWAY was idle-only for client request HEADERS. Server reserved `pending_open` (PP advertised) still GOAWAY'd DATA — F98 (F92 residual).
 - `recv_headers` on server reserved `pending_open`: still idle GOAWAY. `recv_open` would GOAWAY anyway (no ReservedLocal recv-H). Not hang/FC.
 - F97 does not RST `send_response`'d children whose HEADERS are still in `pending_open` (state left ReservedLocal). RFC SHOULD cancel; client already has PP. Optional, not a hang.
+- pending_push send `available` stays 0 (`try_assign` skip + `Stream::new` does not assign). Not an I1 hole.
+- Oversize response/request HEADERS+EOS after the other half already EOS: RST may not leave (`send_reset` on Closed+empty). `poll_response` still errors. Optional F74-style move of `is_over_size` before `recv_open`.
 
 ## High priority next
 1. Package PRs for F3–F98.
