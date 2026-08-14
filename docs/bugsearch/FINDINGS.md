@@ -595,6 +595,13 @@
 - **Change:** First 1xx on `ReservedRemote` transitions to `HalfClosedLocal(AwaitingHeaders)` so later 1xx/final use the existing half-closed path (`initial = false`).
 - **Regression:** `recv_informational_on_reserved_push_then_final`.
 
+### F105 — Oversize trailers accepted / RST dropped after request EOS
+- **Severity:** Medium (protocol): `is_over_size` was checked only in `recv_headers` (before `recv_open`, F100). Trailer HEADERS take the `recv_trailers` path and were queued even when the block exceeded `SETTINGS_MAX_HEADER_LIST_SIZE`. After request EOS, `recv_close` fully closes the stream so a later `send_reset` would no-op (F100 class). RFC 9113 §4.2.2 / §8.2.1: oversize header block is malformed.
+- **Evidence:** max_header_list_size=60, valid 200, then trailers `x-pad` 30 bytes: post-fix `RST_STREAM(1) PROTOCOL_ERROR`, follow-up stream 3 200 works. Pre-fix trailers delivered and no RST.
+- **Fix branch:** `fix/oversize-trailers-before-recv-close`
+- **Change:** Reject `frame.is_over_size()` at the start of `recv_trailers` (before `recv_close`).
+- **Regression:** `oversize_trailers_after_request_eos_sends_reset`.
+
 ### F104 — `push_request` after remote GOAWAY still reserved a promised id
 - **Severity:** Medium (cancel / hang): After `recv_go_away`, `send.max_stream_id` is the peer's last-stream-id. `send_request` already fails via `conn_error`. `push_request` still called `reserve_local` and queued PP. The GOAWAY sender **ignores** frames on streams > last (RFC 9113 §6.8): push HEADERS/DATA get no RST/WU, so `send_data` / the client's push future stall. Existing advertised children `id > last` are already `handle_error`'d on the GOAWAY path.
 - **Evidence:** Client GOAWAY(last=1) then `push_request`: post-fix `UserError::Rejected`; no PP on the wire; parent 200 still sent. Pre-fix PP(1,2) would flush into a black hole.

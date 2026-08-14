@@ -434,3 +434,79 @@ async fn poll_trailers_after_reset_with_buffered_data_does_not_hang() {
     join(srv, client).await;
 }
 
+/// Oversize trailers after a valid final response. Pre-fix `recv_trailers`
+/// never checked `is_over_size`; after request EOS `recv_close` fully closed
+/// the stream so a later RST would no-op (F100 class).
+#[tokio::test]
+async fn oversize_trailers_after_request_eos_sends_reset() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_frame_eq(settings, frames::settings().max_header_list_size(60));
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://http2.akamai.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(200)).await;
+        // 32 + len("x-pad") + 30 > 60
+        srv.send_frame(
+            frames::headers(1)
+                .field("x-pad", "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy")
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://http2.akamai.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(3).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::Builder::new()
+            .max_header_list_size(60)
+            .handshake::<_, Bytes>(io)
+            .await
+            .expect("handshake");
+
+        let request = Request::builder()
+            .uri("https://http2.akamai.com/")
+            .body(())
+            .unwrap();
+        let (resp, _) = client.send_request(request, true).expect("send_request");
+        let req1 = async move {
+            let resp = resp.await.expect("response headers");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let err = resp
+                .into_body()
+                .trailers()
+                .await
+                .expect_err("oversize trailers");
+            assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        };
+        conn.drive(req1).await;
+
+        let request = Request::builder()
+            .uri("https://http2.akamai.com/")
+            .body(())
+            .unwrap();
+        let (resp2, _) = client.send_request(request, true).expect("send_request2");
+        let req2 = async move {
+            let resp = resp2.await.expect("second response");
+            assert_eq!(resp.status(), StatusCode::OK);
+        };
+        conn.drive(req2).await;
+        drop(client);
+        conn.await.expect("client conn");
+    };
+
+    join(srv, client).await;
+}
+

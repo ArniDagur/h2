@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F104 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F105 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -160,9 +160,10 @@
 - Nested PUSH_PROMISE on reserved (remote) / opened push parent was accepted; reserved child not visible via `PushedResponseFuture` (no `push_promises`) and held a reserved slot — F102.
 - F97 residual: `send_response` transitions out of `ReservedLocal` before HEADERS flush; `pending_open` push after advertised PP was not RST on parent cancel (client hang while another push held the send slot) — F103.
 - `push_request` after remote GOAWAY with last < next promised id — F104.
+- Oversize trailer HEADERS skipped `is_over_size` (F100 only covered `recv_headers`) — F105.
 
 ## High priority next
-1. Package PRs for F3–F104.
+1. Package PRs for F3–F105.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

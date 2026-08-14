@@ -711,6 +711,19 @@ impl Recv {
         // send_reset would no-op (closed + empty queue) and the peer would
         // never see RST_STREAM for a malformed trailer block.
 
+        // RFC 9113 §4.2.2 / §8.2.1: a header block larger than
+        // SETTINGS_MAX_HEADER_LIST_SIZE is malformed. recv_headers checks
+        // this before recv_open (F100); trailers skipped that path and were
+        // queued. After request EOS, recv_close fully closes the stream so
+        // a later send_reset would no-op.
+        if frame.is_over_size() {
+            proto_err!(
+                stream: "recv_trailers: header block over max_header_list_size; stream={:?}",
+                stream.id
+            );
+            return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR));
+        }
+
         // RFC 9113 §8.1: trailer section fields MUST NOT include
         // pseudo-header fields. load_hpack still accepts them into `Pseudo`
         // (it does not know trailer context); reject here before dropping.
