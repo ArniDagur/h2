@@ -1619,6 +1619,63 @@ async fn drop_pushed_stream_before_response_sends_reset() {
     join(client, srv).await;
 }
 
+/// Dropping `SendPushedResponse` before PP flushes enqueues reset expiration.
+/// With `max_concurrent_reset_streams = 0` that enqueue is refused, so the
+/// child was `is_released` (pending_push was not a keep-alive) and removed.
+/// The next `poll_complete` then `unwrap`ed `find_mut` for the still-queued
+/// PUSH_PROMISE. Same panic if reset duration expires before the parent is
+/// flushed. Child must stay until PP is popped (then F18 emits PP+RST).
+#[tokio::test]
+async fn drop_pending_push_when_reset_cap_zero_does_not_panic() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/style.css"),
+            )
+            .await;
+        client.recv_frame(frames::reset(2).cancel()).await;
+        client.recv_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::Builder::new()
+            .max_concurrent_reset_streams(0)
+            .handshake::<_, Bytes>(io)
+            .await
+            .expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        let push = stream.push_request(pushed_req).unwrap();
+        drop(push);
+
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        stream.send_response(rsp, true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 /// Connection-specific headers / disabled push must not burn a stream id
 /// (F25 residual: those checks ran only in send_push_promise after reserve).
 #[tokio::test]

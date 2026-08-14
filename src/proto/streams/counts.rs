@@ -292,7 +292,12 @@ impl Counts {
 
         if stream.is_closed() {
             if !stream.is_pending_reset_expiration() {
-                stream.unlink();
+                // pending_push: parent still has PUSH_PROMISE queued and
+                // looks the child up by id. Unlinking makes find_mut miss
+                // (F106). Keep the id map until PP is popped.
+                if !stream.is_pending_push {
+                    stream.unlink();
+                }
                 if is_reset_counted {
                     self.dec_num_reset_streams();
                 }

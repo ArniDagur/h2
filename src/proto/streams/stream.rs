@@ -301,7 +301,10 @@ impl Stream {
             // The stream is not in any queue
             !self.is_pending_send && !self.is_pending_send_capacity &&
             !self.is_pending_accept && !self.is_pending_window_update &&
-            !self.is_pending_open && self.reset_at.is_none()
+            !self.is_pending_open &&
+            // Parent still has PUSH_PROMISE queued; pop_frame looks the child
+            // up by promised id. Reaping here unwrap-panics (F106).
+            !self.is_pending_push && self.reset_at.is_none()
     }
 
     /// Returns true when the consumer of the stream has dropped all handles

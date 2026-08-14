@@ -994,8 +994,19 @@ impl Prioritize {
                                 counts.transition_after(stream, is_pending_reset);
                                 continue;
                             }
-                            let mut pushed =
-                                stream.store_mut().find_mut(&pp.promised_id()).unwrap();
+                            let Some(mut pushed) =
+                                stream.store_mut().find_mut(&pp.promised_id())
+                            else {
+                                // Child reaped before PP flushed (reset
+                                // expiration / max reset cap). Never advertised.
+                                if !stream.pending_send.is_empty()
+                                    || stream.state.is_scheduled_reset()
+                                {
+                                    self.pending_send.push(&mut stream);
+                                }
+                                counts.transition_after(stream, is_pending_reset);
+                                continue;
+                            };
                             pushed.is_pending_push = false;
                             // PUSH_PROMISE is now on the wire: the promised stream is
                             // reserved at the peer. Schedule send if headers were
