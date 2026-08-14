@@ -81,6 +81,10 @@ impl Send {
         self.is_push_enabled
     }
 
+    pub(crate) fn max_stream_id(&self) -> StreamId {
+        self.max_stream_id
+    }
+
     pub(crate) fn check_headers(fields: &http::HeaderMap) -> Result<(), UserError> {
         // 8.1.2.2. Connection-Specific Header Fields
         if fields.contains_key(http::header::CONNECTION)

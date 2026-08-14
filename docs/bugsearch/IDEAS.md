@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F103 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F104 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -95,7 +95,7 @@
 - `send_response` then drop before PP flush left HEADERS queued; PP pop flushed them without a send slot (open over max) — F94.
 - Explicit `send_reset` on `pending_push` `queue_open`'d the RST and waited for a concurrency slot — F95.
 - Queued PUSH_PROMISE flushed after peer SETTINGS_ENABLE_PUSH=0 (poll2 applies then poll_complete writes) — F96.
-- Queued PP after *receiving* GOAWAY with last < promised id: RFC §6.8 is SHOULD NOT initiate; the GOAWAY sender **ignores** frames on streams > last (not PROTOCOL_ERROR like F96). `send_request` already `ensure_no_conn_error`. `push_request` does not check `send.max_stream_id` — optional hardening, not hang/FC.
+- Queued PP after *receiving* GOAWAY with last < promised id: peer ignores the child (no WU/RST) → send/push hang — F104 (`promised_id > send.max_stream_id` → Rejected). GOAWAY(MAX) still allows push.
 - Parent reset after advertised PP did not RST reserved children — F97.
 - `has_streams()` omits `num_pending_open`: client `maybe_close` uses `has_streams_or_other_references` (live handles keep refs). Graceful idle runs `poll_complete` first (promotes pending_open if a slot exists; F15 aborts max=0). Cancelled pending_open with refs==1 may GOAWAY before abort; store Drop cleans up, no waiter hang.
 - F30 + mid-flight SETTINGS INITIAL_WINDOW_SIZE=0: same as peer never sending WU; NO_ERROR flush waits by design (existing large-body + WU test).
@@ -144,7 +144,7 @@
 - `has_streams()` omits `num_pending_open` on the idle/`conn_error` close path: `poll_complete` runs first and either promotes (slot free) or leaves the queue only when `!can_inc` (open send streams remain). Public `has_streams` can be false between queue and poll; not a waiter hang.
 - `recv_push_promise` ignores only when **parent** id > `recv.max_stream_id`. `promised_id > max` would accept PP then ignore push HEADERS. Needs our GOAWAY then a still-open parent; client has no such API (maybe_close is idle-only). Optional promised-id check.
 - F30 + SETTINGS INITIAL_WINDOW_SIZE=0 after NO_ERROR is scheduled: `pop_frame` may drop the stream off send/capacity queues when `!has_unavailable`. Recovery is stream WU / later SETTINGS increase via `recv_stream_window_update` (not those queues). Same wait-for-WU policy as a live body; not lost-wakeup.
-- GOAWAY-PP promised-id hang needs our GOAWAY + still-open parent + PP accepted (parent ≤ last) then HEADERS ignored (promised > last). h2 client has no graceful/abrupt GOAWAY while streams live. Server `recv.max` is client-initiated. Remote GOAWAY already errors existing push children `id > last`. New `push_request` after GOAWAY is RFC SHOULD NOT / optional reject, not a connection hang.
+- GOAWAY-PP promised-id hang (our GOAWAY + still-open parent + PP accepted then HEADERS ignored): h2 client has no graceful GOAWAY while streams live. Server-side *new* `push_request` after *remote* GOAWAY is F104.
 - Peer RST `handle_error` reclaim `task=None` is in-poll2; `poll_complete` assigns leftover window. Contrast F76 (user-thread reclaim).
 - SETTINGS max-concurrent increase does not itself wake `open_task`; `poll_send` applies then the same poll’s `poll_complete` `pop_pending_open` (which `notify_open`).
 - `FlowControl` **is** `Clone` (F80 text said it was not). RecvStream drop still auto-releases in_flight; a leftover clone cannot double-release.
@@ -159,9 +159,10 @@
 - 1xx on reserved (remote) push stayed reserved and recounted recv streams — F99.
 - Nested PUSH_PROMISE on reserved (remote) / opened push parent was accepted; reserved child not visible via `PushedResponseFuture` (no `push_promises`) and held a reserved slot — F102.
 - F97 residual: `send_response` transitions out of `ReservedLocal` before HEADERS flush; `pending_open` push after advertised PP was not RST on parent cancel (client hang while another push held the send slot) — F103.
+- `push_request` after remote GOAWAY with last < next promised id — F104.
 
 ## High priority next
-1. Package PRs for F3–F103.
+1. Package PRs for F3–F104.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

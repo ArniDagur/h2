@@ -1530,6 +1530,12 @@ impl<B> StreamRef<B> {
         // burn a stream id (same pattern as client `send_request`). Connection-
         // specific headers are checked inside convert_push_message.
         let promised_id = actions.send.ensure_next_stream_id()?;
+        // Remote GOAWAY: peer ignores streams we initiate above last-stream-id.
+        // Queuing PP/HEADERS there hangs send_data (no WU) and the client's
+        // push future (HEADERS dropped). RFC 9113 §6.8 SHOULD NOT initiate.
+        if promised_id > actions.send.max_stream_id() {
+            return Err(UserError::Rejected);
+        }
         let frame =
             crate::server::Peer::convert_push_message(parent_id, promised_id, request)?;
         let promised_id = actions.send.reserve_local()?;

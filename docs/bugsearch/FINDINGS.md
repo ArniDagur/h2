@@ -595,6 +595,13 @@
 - **Change:** First 1xx on `ReservedRemote` transitions to `HalfClosedLocal(AwaitingHeaders)` so later 1xx/final use the existing half-closed path (`initial = false`).
 - **Regression:** `recv_informational_on_reserved_push_then_final`.
 
+### F104 — `push_request` after remote GOAWAY still reserved a promised id
+- **Severity:** Medium (cancel / hang): After `recv_go_away`, `send.max_stream_id` is the peer's last-stream-id. `send_request` already fails via `conn_error`. `push_request` still called `reserve_local` and queued PP. The GOAWAY sender **ignores** frames on streams > last (RFC 9113 §6.8): push HEADERS/DATA get no RST/WU, so `send_data` / the client's push future stall. Existing advertised children `id > last` are already `handle_error`'d on the GOAWAY path.
+- **Evidence:** Client GOAWAY(last=1) then `push_request`: post-fix `UserError::Rejected`; no PP on the wire; parent 200 still sent. Pre-fix PP(1,2) would flush into a black hole.
+- **Fix branch:** `fix/push-request-after-remote-goaway`
+- **Change:** Reject `push_request` when `next_promised_id > send.max_stream_id` (before convert/reserve). GOAWAY(MAX) still allows push (`2 <= MAX`).
+- **Regression:** `push_request_after_remote_goaway_is_rejected`.
+
 ### F103 — Parent reset skips `pending_open` push after `send_response`
 - **Severity:** Medium (cancel / hang): F97 only RST'd `ReservedLocal` children. `send_response` calls `send_open` (ReservedLocal → HalfClosedRemote) before HEADERS leave `pending_open`. With `MAX_CONCURRENT_STREAMS` already full, PP is advertised but push HEADERS never flush. Parent cancel left the client push future parked until the occupying push finished (or forever if it never EOS'd).
 - **RFC 9113 §8.4.1:** SHOULD cancel promised requests that have **not yet been sent**.

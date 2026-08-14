@@ -1,21 +1,20 @@
 # Bugsearch status
 
 **Updated:** 2026-08-14  
-**Branch tip:** `experimental/bugsearch` (F103)
+**Branch tip:** `experimental/bugsearch` (F104)
 
 ## Current focus
-F103: parent reset did not RST `pending_open` push after `send_response`.
+F104: `push_request` after remote GOAWAY still reserved a promised stream.
 
 ## Last actions
-1. F97 only matched `ReservedLocal`. `send_response` already `send_open`s, so a child waiting on a send slot was skipped.
-2. With max concurrent 1, PP(4) advertised + HEADERS queued: parent CANCEL left the client push future hanging while stream 2 held the slot.
-3. Also RST `is_pending_open` children (F93 abort emits RST without a slot).
+1. Client GOAWAY(last=1) leaves `send.max_stream_id=1`; `push_request` still queued PP(1,2).
+2. Peer ignores stream 2 (no WU/RST) → server `send_data` / client push future stall.
+3. Reject when `next_promised_id > send.max_stream_id` (before reserve). GOAWAY(MAX) still allows push.
 
 ## Next recommended step
-1. Package PRs for F3–F103.
+1. Package PRs for F3–F104.
 2. Residual #848 API ready-at-max-open.
-3. Optional: reject `push_request` after remote GOAWAY / cap promised id.
-4. Next search: fuzz vs Go/nghttp2 or other hang/FC.
+3. Next search: fuzz vs Go/nghttp2 or other hang/FC.
 
 ## Blockers
 None.

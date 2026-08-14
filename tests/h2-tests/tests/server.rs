@@ -1802,6 +1802,59 @@ async fn push_request_after_response_eos_is_user_error() {
     join(client, srv).await;
 }
 
+/// After remote GOAWAY(last=1), promised id 2 will be ignored by the peer.
+/// Pre-fix `push_request` still reserved the child; HEADERS/DATA went into
+/// a black hole (send window never recovered). RFC 9113 §6.8 SHOULD NOT.
+#[tokio::test]
+async fn push_request_after_remote_goaway_is_rejected() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client.send_frame(frames::go_away(1)).await;
+        client.recv_frame(frames::headers(1).response(200).eos()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        // Apply the client's GOAWAY before push_request.
+        poll_fn(|cx| {
+            let _ = srv.poll_closed(cx);
+            Poll::Ready(())
+        })
+        .await;
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        stream
+            .push_request(pushed_req)
+            .expect_err("push_request after remote GOAWAY must fail");
+
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        stream.send_response(rsp, true).unwrap();
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
 #[test]
 #[ignore]
 fn accept_with_pending_connections_after_socket_close() {}
