@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F100 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F101 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -112,7 +112,7 @@
 - #699 Cookie concatenation (RFC 9113 §8.1.2.5): ecosystem uses get_all; design/interop not a silent correctness bug.
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 - WINDOW_UPDATE increment 0: frame load rejects both stream 0 and N as connection InvalidWindowUpdateValue. RFC MUST conn-error on stream 0; MAY stream-error on N — match is valid.
-- `poll_trailers` parks while DATA is at `pending_recv` head (test `poll_trailers_before_data_is_consumed`); `poll_data` notify_recv unparks. Trailers-only after DATA+EOS with no further frames never wakes — drain-data-then-trailers API, not a library missed wakeup.
+- `poll_trailers` parks while DATA is at `pending_recv` head (test `poll_trailers_before_data_is_consumed`); `poll_data` notify_recv unparks. Trailers-only after DATA+EOS with no further frames never wakes — drain-data-then-trailers API. RST while DATA is still queued re-parked after notify_recv — F101.
 - Second refuse while `refused` is Some asserts; poll_ready sends RST before the next `poll_next`, and CodecFull stops reads — same poll-ordering class as SETTINGS ACK.
 - `try_assign` skipping `pending_push` is F91; leftover IDEAS note that said it was “not a hang” is obsolete.
 - SETTINGS MAX_FRAME_SIZE outside 2^14..2^24-1 already InvalidSettingValue (no zero-length DATA spin).
@@ -158,7 +158,7 @@
 - 1xx on reserved (remote) push stayed reserved and recounted recv streams — F99.
 
 ## High priority next
-1. Package PRs for F3–F100.
+1. Package PRs for F3–F101.
 2. Optional #848 follow-up: connection-level ready when *open* count is at max (API design change).
 
 ## Lower priority

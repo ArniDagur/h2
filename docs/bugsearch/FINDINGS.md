@@ -573,6 +573,13 @@
 - **Change:** `Streams::recv_data` idle GOAWAY only when `is_pending_open && !peer.is_server()`. Server reserved path falls through to F23 `ignore_data` + `STREAM_CLOSED`.
 - **Regression:** `data_on_pending_open_push_is_stream_closed_not_goaway`.
 
+### F101 — `poll_trailers` hangs after RST when DATA is still queued
+- **Severity:** Medium (hang / missed error): `poll_trailers` parks whenever `pending_recv` head is not trailers. A RST `notify_recv`s that waiter, but the next poll hits the same DATA head and parks again. No further recv wake arrives → hang. `poll_data` still pops DATA then delivers the reset (F4).
+- **Evidence:** Response HEADERS + DATA, park `poll_trailers`, peer `RST_STREAM(CANCEL)`: pre-fix 2s timeout; post-fix Ready `Err(CANCEL)`. Existing `poll_trailers_before_data_is_consumed` (drain DATA then trailers) unchanged.
+- **Fix branch:** `fix/poll-trailers-reset-with-buffered-data`
+- **Change:** When the queue head is not trailers, if `ensure_recv_open` is `Err`, deliver the stream error instead of re-parking.
+- **Regression:** `poll_trailers_after_reset_with_buffered_data_does_not_hang`.
+
 ### F100 — Oversize HEADERS+EOS after the other half EOS drops RST
 - **Severity:** Medium (protocol): `is_over_size` ran after `recv_open`. Request EOS + oversize response EOS fully closed the stream (`Closed(EndStream)`), so `send_reset` no-ops (closed + empty queue). Peer never saw `RST_STREAM`. Same class as F74. `recv_too_big_headers` hid this: its 40-byte cap is smaller than `:status` (42), so F36 missing-status RST'd *before* `recv_open`.
 - **Evidence:** `max_header_list_size=60`, 200 + extra field + EOS after request EOS: pre-fix `send_reset` with `is_closed=true` / no RST, mock waited. Post-fix `RST_STREAM(1) PROTOCOL_ERROR`, follow-up stream 3 200 works.
