@@ -113,6 +113,7 @@
 - Double SETTINGS before ACK: poll_ready ACKs first; assert in recv_settings is safe under poll ordering.
 - WINDOW_UPDATE increment 0: frame load rejects both stream 0 and N as connection InvalidWindowUpdateValue. RFC MUST conn-error on stream 0; MAY stream-error on N — match is valid.
 - `poll_trailers` parks while DATA is at `pending_recv` head (test `poll_trailers_before_data_is_consumed`); `poll_data` notify_recv unparks. Trailers-only after DATA+EOS with no further frames never wakes — drain-data-then-trailers API. RST while DATA is still queued re-parked after notify_recv — F101.
+- F101 siblings: `poll_data` / `poll_informational` / `poll_response` / `poll_pushed` already error on empty-queue `ensure_recv_open`. RecvStream after headers-taken only queues DATA/trailers; `poll_data` on trailers is EOS. `ErrorAfterEndStream` + unread DATA still Pending on `poll_trailers` (same drain API; recv already ended).
 - Second refuse while `refused` is Some asserts; poll_ready sends RST before the next `poll_next`, and CodecFull stops reads — same poll-ordering class as SETTINGS ACK.
 - `try_assign` skipping `pending_push` is F91; leftover IDEAS note that said it was “not a hang” is obsolete.
 - SETTINGS MAX_FRAME_SIZE outside 2^14..2^24-1 already InvalidSettingValue (no zero-length DATA spin).

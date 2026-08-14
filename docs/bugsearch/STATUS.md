@@ -4,12 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F101)
 
 ## Current focus
-F101: `poll_trailers` re-parked on leftover DATA after RST.
+No new hang/FC. Rechecked F101 siblings on recv polls.
 
 ## Last actions
-1. `poll_trailers` treated any non-trailer queue head as Pending. RST woke the waiter, then the next poll parked again with no further notify.
-2. Stream error is now delivered instead of re-parking. DATA+EOS without RST still requires drain-then-trailers (existing API).
-3. Regression `poll_trailers_after_reset_with_buffered_data_does_not_hang`.
+1. `poll_data` only parks via `schedule_recv` (empty queue) which already surfaces RST/GOAWAY. Non-data head is trailers → `Ready(None)` (body done), not a hang.
+2. `poll_informational` / `poll_response` / `poll_pushed` park only on empty + `ensure_recv_open`; RST `notify_*` then `Err`.
+3. `Closed(ErrorAfterEndStream)` + DATA still queued: `poll_trailers` stays Pending (`Ok(false)`). Same drain-then-trailers API as clean DATA+EOS; late RST after recv EOS is not a recv error.
 
 ## Next recommended step
 1. Package PRs for F3–F101.
