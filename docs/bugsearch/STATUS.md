@@ -4,12 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F106)
 
 ## Current focus
-No new hang/FC. Rechecked SETTINGS IWS reclaim vs pending_open / pending_capacity (F6/F8).
+No new hang/FC. Rechecked F5 open_task split, F17 abort flag, I1 unlink vs `is_closed()`.
 
 ## Last actions
-1. SETTINGS IWS decrease: skip send-closed+unbuffered; reclaim `available > window`; `notify_capacity` if reclaimed>0 (F8); leftover goes to `assign_connection_capacity`. pending_open has `available==0` so no reclaim / I1 hold.
-2. SETTINGS IWS increase: `recv_stream_window_update` → `try_assign` (skips pending_open/pending_push). Parked `poll_capacity` wakes via `assign_capacity` when usable capacity rises.
-3. `reserve_capacity(0)` + `poll_capacity` stays Pending (requested=0, same as never-reserved). API footgun like `max_send_buffer_size(0)`, not a silent hang.
+1. `poll_pending_open` still parks only on `open_task` (F5). `wait_send` is poll_capacity/poll_reset only.
+2. Queue `pop` clears `is_pending_open`. F17 abort then `poll_ready` sees missing/non-pending id → Ready.
+3. I1 ids-only vs unlink: `Stream::is_closed()` requires empty `pending_send` and `buffered==0`, so unlink does not happen while assigned send capacity remains (RST still queued or body still buffered). Not an I1/F106-class hole.
 
 ## Next recommended step
 1. Package PRs for F3–F106.
