@@ -178,6 +178,11 @@ impl PingPong {
                 ping.sent = true;
             }
         } else if let Some(ref users) = self.user_pings {
+            // Register before reading state. `send_ping` does EMPTY →
+            // PENDING_PING then `ping_task.wake()`. Checking first loses
+            // that wake when it races between the load and register, and
+            // an idle connection stays parked on `poll_next`.
+            users.0.ping_task.register(cx.waker());
             if users.0.state.load(Ordering::Acquire) == USER_STATE_PENDING_PING {
                 if !dst.poll_ready(cx)?.is_ready() {
                     return Poll::Pending;
@@ -189,8 +194,6 @@ impl PingPong {
                     .0
                     .state
                     .store(USER_STATE_PENDING_PONG, Ordering::Release);
-            } else {
-                users.0.ping_task.register(cx.waker());
             }
         }
 

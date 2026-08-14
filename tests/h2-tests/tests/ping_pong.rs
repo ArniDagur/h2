@@ -134,6 +134,53 @@ async fn user_ping_pong() {
     join(srv, client).await;
 }
 
+/// `send_ping` after the connection is parked on read must wake it.
+/// Pre-fix `send_pending_ping` loaded state then registered `ping_task`,
+/// so EMPTY → PENDING_PING + wake could be lost; idle `poll_pong` hung.
+#[tokio::test]
+async fn send_ping_wakes_idle_connection() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            srv.recv_frame(frames::ping(frame::Ping::USER)),
+        )
+        .await
+        .expect("user PING not written; idle connection was not woken");
+        srv.send_frame(frames::ping(frame::Ping::USER).pong()).await;
+        srv.recv_frame(frames::go_away(0)).await;
+        srv.recv_eof().await;
+    };
+
+    let client = async move {
+        let (client, mut conn) = client::handshake(io).await.expect("client handshake");
+        conn.drive(util::yield_once()).await;
+        let mut ping_pong = client::Connection::ping_pong(&mut conn).expect("taking ping_pong");
+        let conn_task = tokio::spawn(async move { conn.await });
+        // Park the connection on poll_next before send_ping.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        ping_pong.send_ping(Ping::opaque()).expect("send ping");
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            futures::future::poll_fn(|cx| ping_pong.poll_pong(cx)),
+        )
+        .await
+        .expect("poll_pong hung after send_ping on idle connection")
+        .expect("pong");
+
+        drop(client);
+        conn_task.await.expect("join conn").expect("client conn");
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn user_notifies_when_connection_closes() {
     h2_support::trace_init!();
