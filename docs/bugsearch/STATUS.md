@@ -4,12 +4,11 @@
 **Branch tip:** `experimental/bugsearch` (F106)
 
 ## Current focus
-No new hang/FC. Rechecked server push at max=0, client idle-close refs, I1 pending_push available.
+No new hang/FC. Rechecked codec `poll_ready` flush vs control-frame ACK vs DATA.
 
 ## Last actions
-1. `push_request` does not reject `max_send_streams==0` (reserved ≠ concurrent). PP flush `queue_open`s; `abort_closed_pending_open` RST `REFUSED_STREAM` (F93). Waiters get `set_reset` notify. Optional API: reject like `send_request` to skip PP-then-RST.
-2. Client `maybe_close` uses `has_streams_or_other_references`. Live `SendRequest` keeps `refs>1`. `pending_open` with dropped handles is F11–F17 abort, not idle GOAWAY hang.
-3. `Stream::new` `inc_window` only (send `available==0`). I1 `pending_push` does not hoard capacity (F91 skip is complete).
+1. `FramedWrite::poll_ready` flushes when `!has_capacity`. `poll2` `poll_ready` (pong / SETTINGS ACK) therefore drains DATA before returning Pending. `poll_complete` cannot steal that space: if `poll2` is Pending, flush is already Pending (same TCP).
+2. Stopping `poll_next` while write-blocked is intentional (apply SETTINGS before further frames). A mutual stall needs the peer to also stop reading; not filing as a library hang. WU still only in `poll_complete` (known fairness / PING flood).
 
 ## Next recommended step
 1. Package PRs for F3–F106.

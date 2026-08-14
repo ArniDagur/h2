@@ -209,3 +209,4 @@
 - Local ENABLE_PUSH mid-connection: Recv flag only set at build; no public API to change push after handshake — OK for current surface.
 - Non-EOS CL parse/mismatch errors after request EOS still after recv_open (stream not fully closed; RST works).
 - Optional: emit pending WINDOW_UPDATE from `poll_ready` (with PING ACK / refusals) so a control-frame flood cannot delay WU until `poll_next` is Pending. Fairness only.
+- Codec full + pending SETTINGS/PING ACK: `poll_ready` flushes first; `poll_complete` does not cut in front (same `flush` Pending). Stop-read-while-write-blocked is the SETTINGS-before-next-frame rule. Two h2 peers both write-blocked is a TCP-level stall, not an h2 assignment/wakeup bug.
