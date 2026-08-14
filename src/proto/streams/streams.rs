@@ -714,11 +714,12 @@ impl Inner {
             }
         };
 
-        // pending_open: HEADERS never left the local queue, so the peer still
-        // sees this id as idle. RFC 9113 §5.1: any frame other than HEADERS or
-        // PRIORITY on idle is a connection PROTOCOL_ERROR. F23's STREAM_CLOSED
-        // path is for streams that were open then recv-closed, not never-sent.
-        if stream.is_pending_open {
+        // Client pending_open: request HEADERS never left, peer still sees idle.
+        // RFC 9113 §5.1: DATA on idle is a connection PROTOCOL_ERROR (F79).
+        // Server pending_open: PUSH_PROMISE was already popped; peer sees
+        // reserved (remote). Same reserved-vs-idle split as WU/RST (F92).
+        // §6.1 / Go: DATA outside open / half-closed (local) is STREAM_CLOSED.
+        if stream.is_pending_open && !peer.is_server() {
             proto_err!(conn: "recv_data: received frame on idle stream {:?}", id);
             return Err(Error::library_go_away(Reason::PROTOCOL_ERROR));
         }
