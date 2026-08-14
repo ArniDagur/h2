@@ -180,6 +180,9 @@
 - `FlowControl` is `Clone`. `RecvStream::drop` releases remaining `in_flight` then sets `is_recv=false`. A leftover clone cannot double-release (available check → `ReleaseCapacityTooBig`).
 - PING flood while `pending_pong` is Some: `poll2` `poll_ready` (send pong) before `poll_next`. CodecFull stops reads. `recv_ping` assert is poll-order safe.
 - Stream `WINDOW_UPDATE` overflow: `send_reset(FLOW_CONTROL_ERROR)` then `reset_on_recv_stream_err` no-ops the second RST. RFC §6.9.1 MUST connection error; h2 is stream-RST lenient (not hang/FC). SETTINGS IWS overflow still `library_go_away`.
+- `push_request` when `max_send_streams==0` (server before peer SETTINGS, or later SETTINGS 0): PP is legal (reserved not counted). Child `queue_open` then F15/F93 RST. Not a hang. Optional: `Rejected` before reserve (same as `send_request`) to avoid PP-then-RST.
+- Client `maybe_close_connection_if_no_streams` at `Connection::poll` start: `SendRequest` clone holds `refs`. `pending_open` without handles is aborted in `poll_complete` before idle GOAWAY. Not a close-while-queued hang.
+- I1 `pending_push` available: `Stream::new` does not `assign_capacity` on send flow; only `try_assign` assigns and it skips `pending_push`. No extra I1 check needed.
 
 ## High priority next
 1. Package PRs for F3–F106.
