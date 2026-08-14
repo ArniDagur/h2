@@ -103,6 +103,7 @@
 | `fix/parent-reset-rst-reserved-push` | F97 |
 | `fix/data-on-reserved-pending-open-push` | F98 |
 | `fix/informational-on-reserved-remote-push` | F99 |
+| `fix/oversize-headers-eos-before-recv-open` | F100 |
 
 ## experimental contains
-F1–F99, I1–I2, deadlock stress test, docs.
+F1–F100, I1–I2, deadlock stress test, docs.

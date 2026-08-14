@@ -573,6 +573,13 @@
 - **Change:** `Streams::recv_data` idle GOAWAY only when `is_pending_open && !peer.is_server()`. Server reserved path falls through to F23 `ignore_data` + `STREAM_CLOSED`.
 - **Regression:** `data_on_pending_open_push_is_stream_closed_not_goaway`.
 
+### F100 — Oversize HEADERS+EOS after the other half EOS drops RST
+- **Severity:** Medium (protocol): `is_over_size` ran after `recv_open`. Request EOS + oversize response EOS fully closed the stream (`Closed(EndStream)`), so `send_reset` no-ops (closed + empty queue). Peer never saw `RST_STREAM`. Same class as F74. `recv_too_big_headers` hid this: its 40-byte cap is smaller than `:status` (42), so F36 missing-status RST'd *before* `recv_open`.
+- **Evidence:** `max_header_list_size=60`, 200 + extra field + EOS after request EOS: pre-fix `send_reset` with `is_closed=true` / no RST, mock waited. Post-fix `RST_STREAM(1) PROTOCOL_ERROR`, follow-up stream 3 200 works.
+- **Fix branch:** `fix/oversize-headers-eos-before-recv-open`
+- **Change:** Reject oversize before `recv_open`. Server first-request path still `recv_open`s then emits 431.
+- **Regression:** `oversize_response_eos_after_request_eos_sends_reset`.
+
 ### F99 — 1xx on reserved (remote) push recounts recv streams
 - **Severity:** Medium (debug panic / concurrency leak): `recv_open` treated informational HEADERS on `ReservedRemote` as opening (`initial = true`) but left the state reserved. The next 1xx or the final push response called `inc_num_recv_streams` again. Debug: `assert!(!stream.is_counted)` panics. Release: `num_recv_streams` grows without a matching decrement (slot leak / later PP refused).
 - **RFC:** §5.1 reserved (remote) + HEADERS (including 1xx) → half-closed (local).
@@ -599,7 +606,7 @@
 - Verdict: policy/API (add timeout later if someone wants it), not a silent correctness bug.
 
 ### S4 — Three failing integration tests after F32/F36/F74
-- `recv_too_big_headers`: RST now emitted on fully closed stream 1 (oversize) as well as stream 3; mock expected only RST(3).
+- `recv_too_big_headers`: mock expected no RST(1) (already closed). Cap 40 < `:status` (42) so F36 missing-status RST's stream 1 *before* `recv_open` (and F100). Not the oversize-after-close hole.
 - `srv_window_update_on_lower_stream_id` (#208): fixture `headers(7).eos()` omits `:status`; F36 RST(7) PROTOCOL_ERROR before the WU-on-5 scenario.
 - `recv_invalid_push_promise_headers_is_stream_protocol_error`: POST/CL≠0 still rejected in `PushPromise::validate_request`; extra collected item is parent 404-then-404+EOS treated as trailers with `:status` (F32) on `push_promises` poll.
 
