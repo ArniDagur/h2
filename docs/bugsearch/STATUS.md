@@ -4,12 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F97)
 
 ## Current focus
-F97: parent reset after advertised PUSH_PROMISE left reserved children without RST.
+No new hang/FC this fire. Checked F97 residuals + client parent-RST cancel.
 
 ## Last actions
-1. Parent `send_reset` / recv RST / implicit cancel now RST still-`ReservedLocal` push children (RFC 9113 §8.4.1).
-2. Unsent PP still discarded locally (F19). Children that already `send_response`'d are not auto-RST'd.
-3. Tests: `parent_reset_after_push_promise_resets_reserved_child`, `parent_recv_reset_resets_reserved_push_child`.
+1. Client auto-error of `ReservedRemote` children on parent RST is **wrong**: HEADERS may still be in flight after parent RST (queue order: parent RST then child HEADERS).
+2. F97 `Send::send_reset` skips `enqueue_reset_expiration`; forgotten-stream path still ignores late WU/RST and STREAM_CLOSED for late HEADERS/DATA.
+3. `schedule_implicit_reset` on F97 children still relies on RST pop `set_reset` to wake `poll_reset` (spawned connection). Same class as other implicit RST.
 
 ## Next recommended step
 1. Package PRs for F3–F97.

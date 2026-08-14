@@ -1,7 +1,7 @@
 # Ideas backlog
 
 ## Tried
-- F1–F96 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
+- F1–F97 fixes; #853 dismiss; I1/I2 conservation; S3 dismiss.
 - #848 full clone-at-max-open ready wait — conflicts with queue-beyond-max tests; F9 only.
 - unclaimed_capacity negative edges; dec_send_window underflow dismissed.
 - poll_capacity vs poll_reset shared `send_task`: low practical risk (both need `&mut SendStream`).
@@ -137,6 +137,9 @@
 - `ignore_data` releases connection capacity with `task=None`. It only runs on the read path (`poll2`); `poll_complete` after `poll_next` Pending emits WU. Same “in-poll2 reclaim” class as peer RST vs F76.
 - Remote GOAWAY with `last_stream_id >= pending_open` id left `poll_ready` parked (`open_task` only notified via `handle_error` for `id > last`) — F89.
 - Parent reset after advertised PP left reserved children without RST (client push future hung until child handle drop) — F97.
+- Client auto-cancel `ReservedRemote` children when parent is RST'd: frame order can be RST(parent) then HEADERS(child) if `send_response` was queued before parent reset. Auto-error would kill a valid in-flight push. Not a library hang.
+- F97 children use `Send::send_reset` (no `enqueue_reset_expiration`). Late WU/RST on the even id hit `ensure_not_idle` and are ignored; late HEADERS/DATA use forgotten-stream STREAM_CLOSED. Not connection-kill.
+- F97 implicit parent drop schedules child RST; `poll_reset` on the still-held `SendPushedResponse` wakes when `pop_frame` `set_reset`s (connection already woken). Same as other scheduled-reset.
 
 ## High priority next
 1. Package PRs for F3–F97.
