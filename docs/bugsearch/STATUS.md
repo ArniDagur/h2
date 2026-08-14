@@ -1,21 +1,21 @@
 # Bugsearch status
 
 **Updated:** 2026-08-14  
-**Branch tip:** `experimental/bugsearch` (F98)
+**Branch tip:** `experimental/bugsearch` (F99)
 
 ## Current focus
-No new hang/FC. Rechecked I1 pending_push available and oversize-after-EOS RST.
+F99: 1xx on reserved-remote push recounted `num_recv_streams`.
 
 ## Last actions
-1. `try_assign` skips `pending_push`; `Stream::new` send available is 0; SETTINGS inc only grows window. pending_push cannot hoard conn send capacity (I1 only asserts pending_open).
-2. Oversize HEADERS+EOS after request EOS: `is_over_size` runs after `recv_open`, stream is `Closed(EndStream)`, `send_reset` no-ops. User still sees PROTOCOL_ERROR on `poll_response`. F74-class missing RST, not a waiter hang.
-3. Server handshake `initial_max_send_streams=0` is replaced by the first client SETTINGS in `poll` before `accept` can `push_request`.
+1. `recv_open` kept `ReservedRemote` for 1xx, so each later HEADERS looked `initial` and `inc_num_recv_streams` again (debug panic / slot leak).
+2. First 1xx now opens `HalfClosedLocal(AwaitingHeaders)` (RFC §5.1).
+3. Regression `recv_informational_on_reserved_push_then_final`.
 
 ## Next recommended step
-1. Package PRs for F3–F98.
+1. Package PRs for F3–F99.
 2. Residual #848 API ready-at-max-open.
 3. Optional: reject `push_request` after remote GOAWAY / cap promised id.
-4. Next search: fuzz vs Go/nghttp2 or other hang/FC.
+4. Next search: fuzz vs Go/nghttp2 or other hang/FC. Oversize-after-EOS RST still optional F74-class.
 
 ## Blockers
 None.

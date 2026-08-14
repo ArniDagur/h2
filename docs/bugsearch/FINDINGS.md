@@ -573,6 +573,14 @@
 - **Change:** `Streams::recv_data` idle GOAWAY only when `is_pending_open && !peer.is_server()`. Server reserved path falls through to F23 `ignore_data` + `STREAM_CLOSED`.
 - **Regression:** `data_on_pending_open_push_is_stream_closed_not_goaway`.
 
+### F99 — 1xx on reserved (remote) push recounts recv streams
+- **Severity:** Medium (debug panic / concurrency leak): `recv_open` treated informational HEADERS on `ReservedRemote` as opening (`initial = true`) but left the state reserved. The next 1xx or the final push response called `inc_num_recv_streams` again. Debug: `assert!(!stream.is_counted)` panics. Release: `num_recv_streams` grows without a matching decrement (slot leak / later PP refused).
+- **RFC:** §5.1 reserved (remote) + HEADERS (including 1xx) → half-closed (local).
+- **Evidence:** PP(1,2) then 100 + 103 + 200 on stream 2. Pre-fix: panic on second 1xx / final HEADERS. Post-fix: push body delivered, PING ACKed, `num_recv` incremented once.
+- **Fix branch:** `fix/informational-on-reserved-remote-push`
+- **Change:** First 1xx on `ReservedRemote` transitions to `HalfClosedLocal(AwaitingHeaders)` so later 1xx/final use the existing half-closed path (`initial = false`).
+- **Regression:** `recv_informational_on_reserved_push_then_final`.
+
 ### F97 — Parent reset does not RST advertised reserved push children
 - **Severity:** Medium (cancel / hang): RFC 9113 §8.4.1: if the original request is cancelled, the server SHOULD cancel promised requests that have not yet been sent. F19 only discarded *unsent* PUSH_PROMISE children. After PP was on the wire, parent `send_reset` / client RST of the parent left the child `ReservedLocal`. The client push `ResponseFuture` hung until the server dropped `SendPushedResponse` (F18).
 - **Evidence:** PP(1,2) flushed, hold child handle, parent CANCEL: post-fix `RST_STREAM(1)` then `RST_STREAM(2)`. Client RST(1) after PP: `RST_STREAM(2)`. Unsent PP still discarded without RST(2) (`parent_reset_discards_unsent_push_promise_child`). Children that already `send_response`'d (not reserved) are left alone.

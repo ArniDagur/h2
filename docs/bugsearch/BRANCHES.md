@@ -102,6 +102,7 @@
 | `fix/drop-queued-push-on-enable-push-zero` | F96 |
 | `fix/parent-reset-rst-reserved-push` | F97 |
 | `fix/data-on-reserved-pending-open-push` | F98 |
+| `fix/informational-on-reserved-remote-push` | F99 |
 
 ## experimental contains
-F1–F98, I1–I2, deadlock stress test, docs.
+F1–F99, I1–I2, deadlock stress test, docs.

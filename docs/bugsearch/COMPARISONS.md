@@ -57,6 +57,12 @@ Cases where h2 matches reference implementations → **spec interpretation, not 
 - **Rust h2 (F33):** stream PROTOCOL_ERROR before `recv_open`.
 - **Verdict:** F33 aligns with Go/RFC.
 
+### 1xx HEADERS on reserved (remote) push
+- **RFC 9113 §5.1:** reserved (remote) + HEADERS (any, including 1xx) → half-closed (local).
+- **Rust h2 (pre-F99):** 1xx left the stream `ReservedRemote` with `initial = true`, so the next 1xx or final response called `inc_num_recv_streams` again.
+- **Rust h2 (F99):** first 1xx opens `HalfClosedLocal(AwaitingHeaders)`.
+- **Verdict:** F99 is an h2 state-machine / counting bug, not a Go mismatch.
+
 ### Cap on number of 1xx responses
 - **Go:** `max1xxResponses = 5` when the user does not examine 1xx via trace hook.
 - **Rust h2 (pre-F35):** unlimited queue in `pending_recv`.
