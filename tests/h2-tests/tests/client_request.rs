@@ -1500,6 +1500,81 @@ async fn recv_too_big_headers() {
     join(srv, client).await;
 }
 
+/// Oversize response HEADERS+EOS after the request already had EOS.
+///
+/// `:status` fits under max_header_list_size so F36 does not fire; a later
+/// regular header trips `is_over_size` *after* `recv_open` fully closes the
+/// stream. Pre-fix `send_reset` no-ops (closed + empty queue).
+#[tokio::test]
+async fn oversize_response_eos_after_request_eos_sends_reset() {
+    h2_support::trace_init!();
+    let (io, mut srv) = mock::new();
+
+    let srv = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_frame_eq(settings, frames::settings().max_header_list_size(60));
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://http2.akamai.com/")
+                .eos(),
+        )
+        .await;
+        // :status ~42 bytes; extra field pushes the list over 60.
+        srv.send_frame(
+            frames::headers(1)
+                .response(200)
+                .field("x-pad", "yyyyyyyyyyyyyyyyyyyy")
+                .eos(),
+        )
+        .await;
+        srv.recv_frame(frames::reset(1).protocol_error()).await;
+        // Connection remains usable (bare 200 is under the 60-byte cap).
+        srv.recv_frame(
+            frames::headers(3)
+                .request("GET", "https://http2.akamai.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(frames::headers(3).response(200).eos()).await;
+    };
+
+    let client = async move {
+        let (mut client, mut conn) = client::Builder::new()
+            .max_header_list_size(60)
+            .handshake::<_, Bytes>(io)
+            .await
+            .expect("handshake");
+
+        let request = Request::builder()
+            .uri("https://http2.akamai.com/")
+            .body(())
+            .unwrap();
+
+        let (resp, _) = client.send_request(request, true).expect("send_request");
+        let req1 = async move {
+            let err = resp.await.expect_err("oversize response");
+            assert_eq!(err.reason(), Some(Reason::PROTOCOL_ERROR));
+        };
+
+        conn.drive(req1).await;
+
+        let request = Request::builder()
+            .uri("https://http2.akamai.com/")
+            .body(())
+            .unwrap();
+        let (resp2, _) = client.send_request(request, true).expect("send_request2");
+        let req2 = async move {
+            let resp = resp2.await.expect("second response");
+            assert_eq!(resp.status(), StatusCode::OK);
+        };
+        conn.drive(req2).await;
+        drop(client);
+        conn.await.expect("client conn");
+    };
+
+    join(srv, client).await;
+}
+
 #[tokio::test]
 async fn pending_send_request_gets_reset_by_peer_properly() {
     h2_support::trace_init!();

@@ -359,6 +359,43 @@ impl Recv {
             }
         }
 
+        // Oversize must be rejected *before* recv_open. Request EOS +
+        // response/request EOS fully closes the stream; send_reset then
+        // no-ops (closed + empty queue) and the peer never sees RST (F74).
+        if frame.is_over_size() {
+            // A frame is over size if the decoded header block was bigger than
+            // SETTINGS_MAX_HEADER_LIST_SIZE.
+            //
+            // > A server that receives a larger header block than it is willing
+            // > to handle can send an HTTP 431 (Request Header Fields Too
+            // > Large) status code [RFC6585]. A client can discard responses
+            // > that it cannot process.
+            tracing::debug!(
+                "stream error REQUEST_HEADER_FIELDS_TOO_LARGE -- \
+                 recv_headers: frame is over size; stream={:?}",
+                stream.id
+            );
+            return if counts.peer().is_server() && stream.state.is_idle() {
+                // Open first so the 431 is sent on a real stream, then RST.
+                let is_initial = stream.state.recv_open(&frame)?;
+                if is_initial {
+                    if frame.stream_id() > self.last_processed_id {
+                        self.last_processed_id = frame.stream_id();
+                    }
+                    counts.inc_num_recv_streams(stream);
+                }
+                let mut res = frame::Headers::new(
+                    stream.id,
+                    frame::Pseudo::response(::http::StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE),
+                    HeaderMap::new(),
+                );
+                res.set_end_stream();
+                Err(RecvHeaderBlockError::Oversize(Some(res)))
+            } else {
+                Err(RecvHeaderBlockError::Oversize(None))
+            };
+        }
+
         let is_initial = stream.state.recv_open(&frame)?;
 
         if is_initial {
@@ -434,36 +471,6 @@ impl Recv {
                     return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
                 }
             }
-        }
-
-        if frame.is_over_size() {
-            // A frame is over size if the decoded header block was bigger than
-            // SETTINGS_MAX_HEADER_LIST_SIZE.
-            //
-            // > A server that receives a larger header block than it is willing
-            // > to handle can send an HTTP 431 (Request Header Fields Too
-            // > Large) status code [RFC6585]. A client can discard responses
-            // > that it cannot process.
-            //
-            // So, if peer is a server, we'll send a 431. In either case,
-            // an error is recorded, which will send a REFUSED_STREAM,
-            // since we don't want any of the data frames either.
-            tracing::debug!(
-                "stream error REQUEST_HEADER_FIELDS_TOO_LARGE -- \
-                 recv_headers: frame is over size; stream={:?}",
-                stream.id
-            );
-            return if counts.peer().is_server() && is_initial {
-                let mut res = frame::Headers::new(
-                    stream.id,
-                    frame::Pseudo::response(::http::StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE),
-                    HeaderMap::new(),
-                );
-                res.set_end_stream();
-                Err(RecvHeaderBlockError::Oversize(Some(res)))
-            } else {
-                Err(RecvHeaderBlockError::Oversize(None))
-            };
         }
 
         let stream_id = frame.stream_id();
