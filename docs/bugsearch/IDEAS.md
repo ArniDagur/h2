@@ -142,6 +142,7 @@
 - F97 implicit parent drop schedules child RST; `poll_reset` on the still-held `SendPushedResponse` wakes when `pop_frame` `set_reset`s (connection already woken). Same as other scheduled-reset.
 - `has_streams()` omits `num_pending_open` on the idle/`conn_error` close path: `poll_complete` runs first and either promotes (slot free) or leaves the queue only when `!can_inc` (open send streams remain). Public `has_streams` can be false between queue and poll; not a waiter hang.
 - `recv_push_promise` ignores only when **parent** id > `recv.max_stream_id`. `promised_id > max` would accept PP then ignore push HEADERS. Needs our GOAWAY then a still-open parent; client has no such API (maybe_close is idle-only). Optional promised-id check.
+- F30 + SETTINGS INITIAL_WINDOW_SIZE=0 after NO_ERROR is scheduled: `pop_frame` may drop the stream off send/capacity queues when `!has_unavailable`. Recovery is stream WU / later SETTINGS increase via `recv_stream_window_update` (not those queues). Same wait-for-WU policy as a live body; not lost-wakeup.
 
 ## High priority next
 1. Package PRs for F3–F97.
