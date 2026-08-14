@@ -157,13 +157,17 @@ impl State {
                 }
             }
             ReservedRemote => {
+                // First HEADERS on reserved (remote) opens the stream
+                // (RFC 9113 §5.1). 1xx is still HEADERS — staying reserved
+                // made every later 1xx / final response look "initial" and
+                // `inc_num_recv_streams` again (debug panic / leak).
                 initial = true;
 
                 if eos {
                     Closed(Cause::EndStream)
                 } else if frame.is_informational() {
-                    tracing::trace!("skipping 1xx response headers");
-                    ReservedRemote
+                    tracing::trace!("reserved remote 1xx opens half-closed local");
+                    HalfClosedLocal(AwaitingHeaders)
                 } else {
                     HalfClosedLocal(Streaming)
                 }

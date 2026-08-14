@@ -753,3 +753,75 @@ async fn recv_push_promise_dup_stream_id() {
 
     join(mock, h2).await;
 }
+
+/// 1xx HEADERS on reserved (remote) must open the stream once.
+///
+/// Pre-fix `recv_open` stayed `ReservedRemote` for 1xx, so `initial` was
+/// true again on the next 1xx and on the final response. That called
+/// `inc_num_recv_streams` while `is_counted` was already set → debug
+/// panic, or in release a leaked concurrent-stream slot.
+#[tokio::test]
+async fn recv_informational_on_reserved_push_then_final() {
+    h2_support::trace_init!();
+
+    let (io, mut srv) = mock::new();
+    let mock = async move {
+        let settings = srv.assert_client_handshake().await;
+        assert_default_settings!(settings);
+        srv.recv_frame(
+            frames::headers(1)
+                .request("GET", "https://http2.akamai.com/")
+                .eos(),
+        )
+        .await;
+        srv.send_frame(
+            frames::push_promise(1, 2).request("GET", "https://http2.akamai.com/style.css"),
+        )
+        .await;
+        srv.send_frame(frames::headers(2).response(StatusCode::CONTINUE))
+            .await;
+        srv.send_frame(
+            frames::headers(2)
+                .response(StatusCode::EARLY_HINTS)
+                .field("link", "</style.css>; rel=preload"),
+        )
+        .await;
+        srv.send_frame(frames::headers(1).response(404).eos()).await;
+        srv.send_frame(frames::headers(2).response(200)).await;
+        srv.send_frame(frames::data(2, "promised_data").eos()).await;
+        srv.ping_pong([0; 8]).await;
+    };
+    let h2 = async move {
+        let (mut client, mut h2) = client::handshake(io).await.unwrap();
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("https://http2.akamai.com/")
+            .body(())
+            .unwrap();
+        let (mut resp, _) = client.send_request(request, true).unwrap();
+        let pushed = resp.push_promises();
+        let check_resp_status = async move {
+            let resp = resp.await.unwrap();
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        };
+        let check_pushed_response = async move {
+            let p = pushed.and_then(|headers| async move {
+                let (_request, response) = headers.into_parts();
+                let resp = response.await.unwrap();
+                assert_eq!(resp.status(), StatusCode::OK);
+                let b = util::concat(resp.into_body()).await.unwrap();
+                assert_eq!(b, "promised_data");
+                Ok(())
+            });
+            let ps: Vec<_> = p.collect().await;
+            assert_eq!(1, ps.len())
+        };
+
+        h2.drive(join(check_resp_status, check_pushed_response))
+            .await;
+        drop(client);
+        h2.await.unwrap();
+    };
+
+    join(mock, h2).await;
+}
