@@ -170,6 +170,7 @@
 - `poll_trailers` + `ErrorAfterEndStream` + unread DATA parks (`Ok(false)`). Same drain-DATA API as clean EOS; RST after EOS is send-half only (`#810`).
 - DATA/RST/WU on unadvertised `pending_push`: idle on the wire; STREAM_CLOSED / apply WU (not F79 GOAWAY). Attack/mis-id; not hang/FC.
 - `has_streams()` omits reserved-local and `pending_push` (only open + reserved-remote). After parent EOS, graceful `should_close_on_idle` can `go_away_now` while a push handle is still live. Client push future gets `recv_eof`, not a hang. Optional: count reserved-local / pending_push in `has_streams`.
+- I1 sums send `available` via `ids` only; I2 must walk slab (unlink + live RecvStream). No reachable leftover send assignment on unlinked streams: first HEADERS+EOS has `available==0`; body/trailers EOS and F77 reclaim. Not an I1 hole.
 
 ## High priority next
 1. Package PRs for F3–F106.
