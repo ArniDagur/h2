@@ -133,9 +133,7 @@ impl Prioritize {
              conn_window={conn_window}"
         );
         if let Some(id) = store.pending_open_holds_send_capacity() {
-            panic!(
-                "pending_open stream {id:?} holds send capacity (starves open streams)"
-            );
+            panic!("pending_open stream {id:?} holds send capacity (starves open streams)");
         }
     }
 
@@ -888,11 +886,19 @@ impl Prioritize {
                                 // after the stream was scheduled. Buffer the
                                 // frame and wait for a window update.
                                 //
+                                // PUSH_PROMISE is not flow-controlled. If one
+                                // sits behind this DATA, promote it so a zero
+                                // stream window cannot hang the reserved child.
+                                stream.pending_send.push_front(buffer, frame.into());
+                                if self
+                                    .promote_push_promise_ahead_of_blocked_data(buffer, &mut stream)
+                                {
+                                    continue;
+                                }
                                 // Ensure we are in `pending_capacity` when more
                                 // connection capacity would help; otherwise a
                                 // later connection WINDOW_UPDATE will never
                                 // re-schedule this stream (S3).
-                                stream.pending_send.push_front(buffer, frame.into());
                                 if stream.send_flow.has_unavailable() {
                                     self.pending_capacity.push(&mut stream);
                                 }
@@ -916,6 +922,11 @@ impl Prioritize {
                             // peer knows is not.
                             if len > 0 && len > stream.send_flow.window_size() {
                                 stream.pending_send.push_front(buffer, frame.into());
+                                if self
+                                    .promote_push_promise_ahead_of_blocked_data(buffer, &mut stream)
+                                {
+                                    continue;
+                                }
                                 // Same as the capacity==0 path: do not leave the
                                 // stream off both send and capacity queues.
                                 if stream.send_flow.has_unavailable() {
@@ -968,8 +979,7 @@ impl Prioritize {
                                 // after we queued this PP. Sending it now is a
                                 // connection PROTOCOL_ERROR (F96).
                                 let promised_id = pp.promised_id();
-                                if let Some(mut pushed) =
-                                    stream.store_mut().find_mut(&promised_id)
+                                if let Some(mut pushed) = stream.store_mut().find_mut(&promised_id)
                                 {
                                     pushed.is_pending_push = false;
                                     while pushed.pending_send.pop_front(buffer).is_some() {}
@@ -978,8 +988,7 @@ impl Prioritize {
                                     self.reclaim_all_capacity(&mut pushed, counts, &mut None);
                                     if !pushed.state.is_closed() {
                                         pushed.set_reset(Reason::CANCEL, Initiator::Library);
-                                    } else if let Some(reason) =
-                                        pushed.state.get_scheduled_reset()
+                                    } else if let Some(reason) = pushed.state.get_scheduled_reset()
                                     {
                                         pushed.set_reset(reason, Initiator::Library);
                                     }
@@ -994,8 +1003,7 @@ impl Prioritize {
                                 counts.transition_after(stream, is_pending_reset);
                                 continue;
                             }
-                            let Some(mut pushed) =
-                                stream.store_mut().find_mut(&pp.promised_id())
+                            let Some(mut pushed) = stream.store_mut().find_mut(&pp.promised_id())
                             else {
                                 // Child reaped before PP flushed (reset
                                 // expiration / max reset cap). Never advertised.
@@ -1028,10 +1036,8 @@ impl Prioritize {
                                 // wait for a concurrency slot the reserved
                                 // stream does not need (F95).
                                 if pushed.pending_send.is_empty() {
-                                    let reason = pushed
-                                        .state
-                                        .reset_reason()
-                                        .unwrap_or(Reason::CANCEL);
+                                    let reason =
+                                        pushed.state.reset_reason().unwrap_or(Reason::CANCEL);
                                     let frame = frame::Reset::new(pushed.id, reason);
                                     self.queue_frame(frame.into(), buffer, &mut pushed, &mut None);
                                 } else {
@@ -1109,6 +1115,26 @@ impl Prioritize {
         }
     }
 
+    /// `PUSH_PROMISE` is not flow-controlled (RFC 9113 §6.9). When DATA at
+    /// the head of `pending_send` cannot be written, a later PP would stay
+    /// queued until a WINDOW_UPDATE — and the promised child stays
+    /// `pending_push` (hang). Trailers must not jump DATA.
+    fn promote_push_promise_ahead_of_blocked_data<B>(
+        &mut self,
+        buffer: &mut Buffer<Frame<B>>,
+        stream: &mut store::Ptr,
+    ) -> bool {
+        let Some(pp) = stream
+            .pending_send
+            .take_first_if(buffer, |f| matches!(f, Frame::PushPromise(_)))
+        else {
+            return false;
+        };
+        stream.pending_send.push_front(buffer, pp);
+        self.pending_send.push(stream);
+        true
+    }
+
     fn pop_pending_open<'s>(
         &mut self,
         store: &'s mut Store,
@@ -1170,8 +1196,7 @@ impl Prioritize {
             let advertised_push = counts.peer().is_server();
             let should_abort = max_zero
                 || stream.state.is_scheduled_reset()
-                || stream.state.is_reset()
-                    && (advertised_push || stream.pending_send.is_empty());
+                || stream.state.is_reset() && (advertised_push || stream.pending_send.is_empty());
 
             if !should_abort {
                 keep.push(&mut stream);

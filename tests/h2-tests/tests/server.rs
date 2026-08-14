@@ -1912,6 +1912,74 @@ async fn push_request_after_remote_goaway_is_rejected() {
     join(client, srv).await;
 }
 
+/// PUSH_PROMISE is not flow-controlled. If it sits behind DATA that cannot
+/// be written (peer INITIAL_WINDOW_SIZE=0), the promised child stays
+/// `pending_push` until a WINDOW_UPDATE that may never come.
+#[tokio::test]
+async fn push_promise_flushes_ahead_of_window_blocked_data() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        let settings = client
+            .assert_server_handshake_with_settings(frames::settings().initial_window_size(0))
+            .await;
+        assert_default_settings!(settings);
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client.recv_frame(frames::headers(1).response(200)).await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/style.css"),
+            ),
+        )
+        .await
+        .expect("PUSH_PROMISE must not wait for stream WINDOW_UPDATE");
+        client
+            .recv_frame(frames::headers(2).response(200).eos())
+            .await;
+        client.send_frame(frames::ping([0x97; 8])).await;
+        client.recv_frame(frames::ping([0x97; 8]).pong()).await;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let rsp = http::Response::builder().status(200).body(()).unwrap();
+        let mut tx = stream.send_response(rsp, false).unwrap();
+        // Non-empty DATA: stream window is 0, so this stays queued.
+        tx.send_data(Bytes::from_static(b"hello"), false).unwrap();
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        let push_rsp = http::Response::builder().status(200).body(()).unwrap();
+        stream
+            .push_request(pushed_req)
+            .unwrap()
+            .send_response(push_rsp, true)
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            assert!(srv.next().await.is_none());
+        })
+        .await
+        .expect("server connection hung waiting to flush PUSH_PROMISE");
+    };
+
+    join(client, srv).await;
+}
+
 #[test]
 #[ignore]
 fn accept_with_pending_connections_after_socket_close() {}
