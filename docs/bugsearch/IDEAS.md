@@ -175,6 +175,11 @@
 - `assign_connection_capacity` `continue`s when a `pending_capacity` stream is no longer send-streaming (reset/closed). `pop` clears the queue flag; `transition_after` waits until `recv_eof`/another touch. Delayed slab reap only.
 - `poll_accept` parks only after `poll_closed` Pending (wakers already registered). Closed connection returns `None` without draining `pending_accept` (existing TODO / not a hang).
 - SETTINGS ACK + non-zero length: we GOAWAY `PROTOCOL_ERROR`; RFC/Go/nghttp2 use `FRAME_SIZE_ERROR`. Reason-code nit only.
+- F89-class leftovers: `poll_capacity` / `poll_reset` / `poll_data` / `poll_pushed` are woken by `handle_error` / `recv_eof` / `set_reset` (all four notify fns). Remote GOAWAY with `id <= last` leaves the stream live; `poll_capacity` on `pending_open` stays Pending until `pop_pending_open` (`notify_send`) or a later reset. `poll_capacity` does not consult `conn_error` — correct for still-allowed streams.
+- `has_streams()` omits `pending_open`: idle GOAWAY after remote error runs `poll_complete` first (promotes if a slot exists; F15 aborts max=0). Connection close `recv_eof` wakes leftover waiters. Not a parked hang.
+- `FlowControl` is `Clone`. `RecvStream::drop` releases remaining `in_flight` then sets `is_recv=false`. A leftover clone cannot double-release (available check → `ReleaseCapacityTooBig`).
+- PING flood while `pending_pong` is Some: `poll2` `poll_ready` (send pong) before `poll_next`. CodecFull stops reads. `recv_ping` assert is poll-order safe.
+- Stream `WINDOW_UPDATE` overflow: `send_reset(FLOW_CONTROL_ERROR)` then `reset_on_recv_stream_err` no-ops the second RST. RFC §6.9.1 MUST connection error; h2 is stream-RST lenient (not hang/FC). SETTINGS IWS overflow still `library_go_away`.
 
 ## High priority next
 1. Package PRs for F3–F106.

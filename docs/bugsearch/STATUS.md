@@ -4,11 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F106)
 
 ## Current focus
-No new hang/FC. Rechecked poll_accept waker and SETTINGS ACK framing.
+No new hang/FC. Rechecked F89-class waiters, FlowControl clone vs F80, PING poll ordering.
 
 ## Last actions
-1. `poll_accept` drives via `poll_closed` (registers read/write/`actions.task`). `pending_accept` push happens in the same `poll2` as the HEADERS; `next_incoming` is checked after. Not a missed accept wake.
-2. SETTINGS ACK with non-empty payload is `PROTOCOL_ERROR` (load maps all SETTINGS errors that way). RFC 9113 §6.5.1 is `FRAME_SIZE_ERROR`. Spec code mismatch, not hang/FC.
+1. Remote GOAWAY / `recv_eof` / `handle_error` notify send/open/recv/push. `poll_capacity` does not read `conn_error`; remaining streams (`id <= last`) wait for WU or `pop_pending_open` (`notify_send`). Reset streams `Ready(None)` via `!is_send_streaming`.
+2. `FlowControl` clone after `RecvStream` drop: drop releases `in_flight` first; later `release_capacity` is `ReleaseCapacityTooBig`. No double-credit.
+3. Second PING while pong unflushed: `poll_ready` before `poll_next` (same class as SETTINGS ACK). `recv_ping` assert holds.
 
 ## Next recommended step
 1. Package PRs for F3–F106.
