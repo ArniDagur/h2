@@ -210,3 +210,5 @@
 - Non-EOS CL parse/mismatch errors after request EOS still after recv_open (stream not fully closed; RST works).
 - Optional: emit pending WINDOW_UPDATE from `poll_ready` (with PING ACK / refusals) so a control-frame flood cannot delay WU until `poll_next` is Pending. Fairness only.
 - Codec full + pending SETTINGS/PING ACK: `poll_ready` flushes first; `poll_complete` does not cut in front (same `flush` Pending). Stop-read-while-write-blocked is the SETTINGS-before-next-frame rule. Two h2 peers both write-blocked is a TCP-level stall, not an h2 assignment/wakeup bug.
+- F6/F8 + pending_open: SETTINGS IWS decrease does not reclaim (available 0). Increase `inc_window` but `try_assign` skips; assign on `pop_pending_open`. pending_capacity streams popped after reclaim get `try_assign`; additional==0 (window 0) stays off-queue until stream WU.
+- `poll_capacity` after `reserve_capacity(0)`: requested floored to buffered; if buffered==0 parks forever. Same class as never calling `reserve_capacity` / `max_send_buffer_size(0)`. Callers that cancel a reservation should not wait on `poll_capacity`.

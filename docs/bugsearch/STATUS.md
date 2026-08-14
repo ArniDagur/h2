@@ -4,11 +4,12 @@
 **Branch tip:** `experimental/bugsearch` (F106)
 
 ## Current focus
-No new hang/FC. Rechecked codec `poll_ready` flush vs control-frame ACK vs DATA.
+No new hang/FC. Rechecked SETTINGS IWS reclaim vs pending_open / pending_capacity (F6/F8).
 
 ## Last actions
-1. `FramedWrite::poll_ready` flushes when `!has_capacity`. `poll2` `poll_ready` (pong / SETTINGS ACK) therefore drains DATA before returning Pending. `poll_complete` cannot steal that space: if `poll2` is Pending, flush is already Pending (same TCP).
-2. Stopping `poll_next` while write-blocked is intentional (apply SETTINGS before further frames). A mutual stall needs the peer to also stop reading; not filing as a library hang. WU still only in `poll_complete` (known fairness / PING flood).
+1. SETTINGS IWS decrease: skip send-closed+unbuffered; reclaim `available > window`; `notify_capacity` if reclaimed>0 (F8); leftover goes to `assign_connection_capacity`. pending_open has `available==0` so no reclaim / I1 hold.
+2. SETTINGS IWS increase: `recv_stream_window_update` → `try_assign` (skips pending_open/pending_push). Parked `poll_capacity` wakes via `assign_capacity` when usable capacity rises.
+3. `reserve_capacity(0)` + `poll_capacity` stays Pending (requested=0, same as never-reserved). API footgun like `max_send_buffer_size(0)`, not a silent hang.
 
 ## Next recommended step
 1. Package PRs for F3–F106.
