@@ -70,6 +70,11 @@ pub(super) struct Stream {
     /// Frames pending for this stream being sent to the socket
     pub pending_send: buffer::Deque,
 
+    /// Promised push stream ids created by `push_request` on this parent.
+    /// Used to RST reserved (local) children when the parent is cancelled
+    /// after PUSH_PROMISE is already on the wire (RFC 9113 §8.4.1).
+    pub promised_push_ids: Vec<StreamId>,
+
     /// Next node in the linked list of streams waiting for additional
     /// connection level capacity.
     pub next_pending_send_capacity: Option<store::Key>,
@@ -205,6 +210,7 @@ impl Stream {
             send_task: None,
             open_task: None,
             pending_send: buffer::Deque::new(),
+            promised_push_ids: Vec::new(),
             is_pending_send_capacity: false,
             next_pending_send_capacity: None,
             send_capacity_inc: false,

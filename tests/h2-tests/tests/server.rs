@@ -693,6 +693,121 @@ async fn parent_reset_discards_unsent_push_promise_child() {
     join(client, srv).await;
 }
 
+/// After PUSH_PROMISE is on the wire, parent `send_reset` must RST reserved
+/// children that never got `send_response` (RFC 9113 §8.4.1). Pre-fix only
+/// the parent was reset; the client push future hung on stream 2.
+#[tokio::test]
+async fn parent_reset_after_push_promise_resets_reserved_child() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+    let (pp_tx, pp_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/style.css"),
+            )
+            .await;
+        let _ = pp_tx.send(());
+        client.recv_frame(frames::reset(1).cancel()).await;
+        let frame = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::reset(2).cancel()),
+        )
+        .await
+        .expect("reserved push child was not RST after parent cancel");
+        let _ = frame;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        // Hold the child so F18 drop-RST does not hide a missing parent-cancel RST.
+        let push = stream.push_request(pushed_req).unwrap();
+
+        // Flush PP (client signals) before resetting the parent.
+        tokio::select! {
+            res = pp_rx => res.unwrap(),
+            _ = srv.next() => panic!("unexpected accept while flushing PUSH_PROMISE"),
+        }
+        stream.send_reset(Reason::CANCEL);
+        drop(push);
+
+        assert!(srv.next().await.is_none());
+    };
+
+    join(client, srv).await;
+}
+
+/// Client RST of the parent must also RST reserved advertised push children.
+#[tokio::test]
+async fn parent_recv_reset_resets_reserved_push_child() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+
+    let client = async move {
+        client
+            .assert_server_handshake_with_settings(frames::settings().max_concurrent_streams(100))
+            .await;
+        client
+            .send_frame(
+                frames::headers(1)
+                    .request("GET", "https://example.com/")
+                    .eos(),
+            )
+            .await;
+        client
+            .recv_frame(
+                frames::push_promise(1, 2).request("GET", "https://example.com/style.css"),
+            )
+            .await;
+        client.send_frame(frames::reset(1).cancel()).await;
+        let frame = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.recv_frame(frames::reset(2).cancel()),
+        )
+        .await
+        .expect("reserved push child was not RST after parent recv RST");
+        let _ = frame;
+    };
+
+    let srv = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        let (req, mut stream) = srv.next().await.unwrap().unwrap();
+        assert_eq!(req.method(), &http::Method::GET);
+
+        let pushed_req = http::Request::builder()
+            .method("GET")
+            .uri("https://example.com/style.css")
+            .body(())
+            .unwrap();
+        let push = stream.push_request(pushed_req).unwrap();
+
+        assert!(srv.next().await.is_none());
+        drop(push);
+        drop(stream);
+    };
+
+    join(client, srv).await;
+}
+
 /// `try_assign` will give connection send capacity to a `pending_push` child.
 /// If the parent is reset before PP is flushed, `clear_queue` discarded the
 /// child without reclaiming that capacity (F90) — later streams could not send.

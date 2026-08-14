@@ -787,6 +787,14 @@ impl Inner {
         self.counts.transition(stream, |counts, stream| {
             actions.recv.recv_reset(frame, stream, counts)?;
             actions.send.handle_error(send_buffer, stream, counts);
+            // Parent recv RST does not go through send_reset (already reset).
+            // Still RST reserved advertised children (RFC 9113 §8.4.1).
+            actions.send.reset_reserved_push_children(
+                stream,
+                send_buffer,
+                counts,
+                &mut actions.task,
+            );
             assert!(stream.state.is_closed());
             Ok(())
         })
@@ -1528,6 +1536,11 @@ impl<B> StreamRef<B> {
             child_stream.unlink();
             child_stream.remove();
             return Err(err);
+        }
+
+        {
+            let mut parent = me.store.resolve(self.opaque.key);
+            parent.promised_push_ids.push(promised_id);
         }
 
         me.refs += 1;

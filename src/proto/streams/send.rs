@@ -321,6 +321,12 @@ impl Send {
         self.prioritize
             .queue_frame(frame.into(), buffer, stream, task);
         self.prioritize.reclaim_all_capacity(stream, counts, task);
+
+        // RFC 9113 §8.4.1: if the original request is cancelled, cancel
+        // promised requests that have not yet been sent (no push HEADERS).
+        // Unsent PP is discarded by clear_queue (F19). Advertised reserved
+        // children need an explicit RST so the peer does not hang.
+        self.reset_reserved_push_children(stream, buffer, counts, task);
     }
 
     pub fn schedule_implicit_reset(
@@ -347,9 +353,72 @@ impl Send {
             if let Some(task) = task.take() {
                 task.wake();
             }
+            self.schedule_reset_reserved_push_children(stream, counts, task);
             return;
         }
         self.prioritize.schedule_send(stream, task);
+        self.schedule_reset_reserved_push_children(stream, counts, task);
+    }
+
+    /// RST reserved (local) push children of a cancelled parent.
+    ///
+    /// `send_reset` on the parent has a send buffer so children get a
+    /// RST_STREAM immediately. `schedule_implicit_reset` does not — children
+    /// are scheduled the same way as an implicit cancel (F18/F93).
+    pub(super) fn reset_reserved_push_children<B>(
+        &mut self,
+        parent: &mut store::Ptr,
+        buffer: &mut Buffer<Frame<B>>,
+        counts: &mut Counts,
+        task: &mut Option<Waker>,
+    ) {
+        let ids = std::mem::take(&mut parent.promised_push_ids);
+        if ids.is_empty() {
+            return;
+        }
+        tracing::trace!(
+            "reset_reserved_push_children; parent={:?}; n={}",
+            parent.id,
+            ids.len()
+        );
+        for id in ids {
+            if let Some(mut child) = parent.store_mut().find_mut(&id) {
+                if child.state.is_reserved_local() {
+                    self.send_reset(
+                        Reason::CANCEL,
+                        Initiator::Library,
+                        buffer,
+                        &mut child,
+                        counts,
+                        task,
+                    );
+                }
+            }
+        }
+    }
+
+    fn schedule_reset_reserved_push_children(
+        &mut self,
+        parent: &mut store::Ptr,
+        counts: &mut Counts,
+        task: &mut Option<Waker>,
+    ) {
+        let ids = std::mem::take(&mut parent.promised_push_ids);
+        if ids.is_empty() {
+            return;
+        }
+        tracing::trace!(
+            "schedule_reset_reserved_push_children; parent={:?}; n={}",
+            parent.id,
+            ids.len()
+        );
+        for id in ids {
+            if let Some(mut child) = parent.store_mut().find_mut(&id) {
+                if child.state.is_reserved_local() {
+                    self.schedule_implicit_reset(&mut child, Reason::CANCEL, counts, task);
+                }
+            }
+        }
     }
 
     pub fn send_data<B>(

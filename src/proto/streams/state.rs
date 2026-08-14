@@ -459,6 +459,12 @@ impl State {
         )
     }
 
+    /// Promised locally (PUSH_PROMISE sent or queued) but push HEADERS have
+    /// not been sent. Parent cancel should RST these (RFC 9113 §8.4.1).
+    pub fn is_reserved_local(&self) -> bool {
+        matches!(self.inner, ReservedLocal)
+    }
+
     /// Interim 1xx HEADERS may be sent only before the final response headers.
     /// Same send-half states that accept `send_open` for the final response.
     pub fn is_send_informational_allowed(&self) -> bool {
