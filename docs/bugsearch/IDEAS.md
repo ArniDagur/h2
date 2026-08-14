@@ -167,6 +167,9 @@
 - SETTINGS IWS decrease + in-flight partial DATA: remainder may sit off both send queues while stream window is 0; stream WU / SETTINGS increase `try_assign` reschedules. Wait-for-WU, not lost-wakeup.
 - Drop `SendPushedResponse` before PP flush + reset-cap 0 / expired reset / GOAWAY+drop unlinked the child; `pop_frame` unwrap — F106.
 - Queued PP after remote GOAWAY (id > last) still flushes then RST if the child stayed (`is_pending_push`). Peer ignores id > last. Wasteful, not panic/hang.
+- `poll_trailers` + `ErrorAfterEndStream` + unread DATA parks (`Ok(false)`). Same drain-DATA API as clean EOS; RST after EOS is send-half only (`#810`).
+- DATA/RST/WU on unadvertised `pending_push`: idle on the wire; STREAM_CLOSED / apply WU (not F79 GOAWAY). Attack/mis-id; not hang/FC.
+- `has_streams()` omits reserved-local and `pending_push` (only open + reserved-remote). After parent EOS, graceful `should_close_on_idle` can `go_away_now` while a push handle is still live. Client push future gets `recv_eof`, not a hang. Optional: count reserved-local / pending_push in `has_streams`.
 
 ## High priority next
 1. Package PRs for F3–F106.
